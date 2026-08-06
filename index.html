@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>오탐 — FALSE POSITIVE : THALASSA-9</title>
+  <meta name="description" content="수심 3,200m 해저 기지의 야간 당직 관제사. 온보드 AI NEREUS가 조언한다. NEREUS는 가끔 틀린다." />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌊</text></svg>" />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <div class="vignette" aria-hidden="true"></div>
+  <div class="scanlines" aria-hidden="true"></div>
+
+  <!-- ══ 상단 바 ══ -->
+  <header class="topbar">
+    <div class="ident">
+      <span class="ident__mark">◈</span>
+      <div>
+        <h1 class="ident__name">THALASSA-9</h1>
+        <p class="ident__sub">심도 3,200 m · 동태평양 해령 열수공 지대</p>
+      </div>
+    </div>
+    <div class="topbar__right">
+      <span class="chip" id="shiftChip">교대 –</span>
+      <span class="chip chip--clock" id="clockChip">--:--</span>
+      <span class="chip chip--time" id="tokenChip">조사 –</span>
+    </div>
+  </header>
+
+  <main class="stage">
+
+    <!-- ══ 좌: 기지 상태 ══ -->
+    <aside class="rail">
+      <section class="card card--vitals">
+        <h2 class="card__title">기지 상태</h2>
+        <div class="vital" data-vital="hull">
+          <div class="vital__row"><span>선체 무결성</span><b id="hullVal">100</b></div>
+          <div class="bar"><i id="hullBar" style="width:100%"></i></div>
+        </div>
+        <div class="vital" data-vital="life">
+          <div class="vital__row"><span>생명유지 · 전력</span><b id="lifeVal">100</b></div>
+          <div class="bar"><i id="lifeBar" style="width:100%"></i></div>
+        </div>
+        <div class="vital" data-vital="trust">
+          <div class="vital__row"><span>승무원 신뢰</span><b id="trustVal">100</b></div>
+          <div class="bar"><i id="trustBar" style="width:100%"></i></div>
+        </div>
+      </section>
+
+      <section class="card card--sonar">
+        <h2 class="card__title">소나</h2>
+        <canvas id="sonar" width="260" height="260" aria-label="소나 스윕"></canvas>
+      </section>
+
+      <section class="card card--log">
+        <h2 class="card__title">당직 로그</h2>
+        <ul class="log" id="log"></ul>
+      </section>
+    </aside>
+
+    <!-- ══ 우: 진행 화면 ══ -->
+    <section class="deck" id="deck">
+
+      <!-- 부팅 / 인트로 -->
+      <article class="screen screen--active" id="scrIntro">
+        <div class="intro">
+          <p class="intro__kicker">FALSE POSITIVE</p>
+          <h2 class="intro__title">오탐</h2>
+          <p class="intro__body" id="introBrief">지원선은 18시간 거리. 당직은 당신 혼자.</p>
+          <p class="intro__body intro__body--dim">
+            온보드 AI <b>NEREUS</b>가 경보를 해석해 조치를 권고합니다.<br />
+            NEREUS는 <b>가끔 틀립니다.</b> 당신의 일은 언제 믿을지 정하는 것입니다.
+          </p>
+          <button class="btn btn--primary" id="startBtn">교대 시작</button>
+        </div>
+      </article>
+
+      <!-- 경보 처리 -->
+      <article class="screen" id="scrIncident">
+        <header class="alert">
+          <div class="alert__head">
+            <span class="alert__tag" id="incChannel">경보</span>
+            <span class="alert__id" id="incId">INC-000</span>
+          </div>
+          <p class="alert__report" id="incReport"></p>
+          <p class="alert__from" id="incFrom"></p>
+        </header>
+
+        <div class="signals" id="incSignals"></div>
+
+        <section class="nereus" id="nereusBox">
+          <div class="nereus__head">
+            <span class="nereus__mark">◆</span> NEREUS 브리핑
+          </div>
+          <dl class="nereus__body">
+            <dt>진단</dt><dd id="nrDiag"></dd>
+            <dt>권고</dt><dd id="nrRec"></dd>
+          </dl>
+          <div class="conf">
+            <span class="conf__label">신뢰도</span>
+            <div class="conf__bar"><i id="nrConfBar"></i></div>
+            <b class="conf__num" id="nrConfNum">0.00</b>
+          </div>
+        </section>
+
+        <section class="evidence">
+          <h3 class="sec__title">증거 확보 <span class="sec__hint">시간 토큰 소모</span></h3>
+          <div class="chips" id="evList"></div>
+          <ul class="reveals" id="evReveals"></ul>
+        </section>
+
+        <section class="actions">
+          <h3 class="sec__title">조치 결정</h3>
+          <div class="acts" id="actList"></div>
+        </section>
+      </article>
+
+      <!-- 결과 -->
+      <article class="screen" id="scrOutcome">
+        <div class="outcome">
+          <p class="outcome__kicker" id="outKicker">결과</p>
+          <p class="outcome__text" id="outText"></p>
+          <div class="outcome__delta" id="outDelta"></div>
+          <button class="btn btn--primary" id="nextBtn">다음 경보</button>
+        </div>
+      </article>
+
+      <!-- 결산 -->
+      <article class="screen" id="scrDebrief">
+        <div class="debrief">
+          <p class="intro__kicker">교대 종료 · 결산</p>
+          <h2 class="debrief__title">혼동행렬</h2>
+          <table class="matrix">
+            <thead>
+              <tr><th></th><th>실제 위협 O</th><th>실제 위협 X</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th>위협으로 대응</th>
+                <td class="m m--tp"><b id="mTP">0</b><span>정탐</span></td>
+                <td class="m m--fp"><b id="mFP">0</b><span>오탐</span></td>
+              </tr>
+              <tr>
+                <th>위협 아님으로 판단</th>
+                <td class="m m--fn"><b id="mFN">0</b><span>미탐</span></td>
+                <td class="m m--tn"><b id="mTN">0</b><span>정상 기각</span></td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="verdicts">
+            <div class="verdict"><span>NEREUS 맹신도</span><b id="vTrustAI">–</b></div>
+            <div class="verdict"><span>최적 조치 선택</span><b id="vOptimal">–</b></div>
+            <div class="verdict"><span>미사용 시간 토큰</span><b id="vTokens">–</b></div>
+          </div>
+          <p class="debrief__note" id="debriefNote"></p>
+          <button class="btn btn--primary" id="restartBtn">다시 당직</button>
+        </div>
+      </article>
+
+    </section>
+  </main>
+
+  <footer class="foot">
+    <span>NHN GAME x AI HACKATHON 2026 · 사전과제</span>
+    <span id="modeBadge" class="mode">콘텐츠: 사전생성</span>
+  </footer>
+
+  <script type="module" src="js/game.js"></script>
+</body>
+</html>

@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://leeyunhome.github.io/false-positive/schema/incident.schema.json",
+  "title": "THALASSA-9 Incident",
+  "description": "경보 1건의 완전한 정의. 정답(truth)은 엔진이 소유하고, NEREUS의 조언(nereus)은 truth에서 의도적으로 이탈할 수 있다. 이 분리가 게임의 핵심이며 생성 파이프라인의 검증 기준이다.",
+  "type": "object",
+  "required": ["id", "clock", "channel", "report", "truth", "nereus", "evidence", "actions"],
+  "additionalProperties": false,
+  "properties": {
+    "id":      { "type": "string", "pattern": "^INC-[0-9]{3}$" },
+    "shift":   { "type": "integer", "minimum": 1, "maximum": 3 },
+    "clock":   { "type": "string", "pattern": "^[0-2][0-9]:[0-5][0-9]$" },
+    "channel": { "enum": ["crew", "sonar", "sensor", "auto"] },
+
+    "reporter": {
+      "type": "object",
+      "required": ["name", "role", "state"],
+      "additionalProperties": false,
+      "properties": {
+        "name":  { "type": "string" },
+        "role":  { "type": "string" },
+        "state": { "enum": ["calm", "agitated", "exhausted"] }
+      }
+    },
+
+    "report": { "type": "string", "minLength": 10, "maxLength": 220 },
+
+    "signals": {
+      "description": "무료로 보이는 계기판 수치. 진단에 부분적 단서만 준다.",
+      "type": "array",
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "required": ["label", "value", "tone"],
+        "additionalProperties": false,
+        "properties": {
+          "label": { "type": "string" },
+          "value": { "type": "string" },
+          "tone":  { "enum": ["ok", "warn", "bad"] }
+        }
+      }
+    },
+
+    "truth": {
+      "description": "엔진이 소유하는 정답. 절대 플레이어에게 직접 노출하지 않는다.",
+      "type": "object",
+      "required": ["cause", "isRealThreat", "severity"],
+      "additionalProperties": false,
+      "properties": {
+        "cause":        { "type": "string" },
+        "isRealThreat": { "type": "boolean" },
+        "severity":     { "type": "integer", "minimum": 0, "maximum": 3 }
+      }
+    },
+
+    "nereus": {
+      "description": "온보드 AI의 조언. bias가 null이 아니면 truth와 의도적으로 어긋난다.",
+      "type": "object",
+      "required": ["diagnosis", "recommendation", "confidence", "bias"],
+      "additionalProperties": false,
+      "properties": {
+        "diagnosis":      { "type": "string", "maxLength": 120 },
+        "recommendation": { "type": "string", "description": "actions[].id 중 하나여야 한다" },
+        "confidence":     { "type": "number", "minimum": 0, "maximum": 1 },
+        "bias": {
+          "description": "NEREUS의 체계적 실패 모드. null이면 이번 조언은 옳다.",
+          "enum": [
+            null,
+            "overconfident_sonar_biologic",
+            "amplifies_agitated_report",
+            "ignores_power_budget",
+            "blames_equipment_near_vent",
+            "anchors_on_previous_incident"
+          ]
+        }
+      }
+    },
+
+    "evidence": {
+      "description": "시간 토큰을 써서 사는 하드 증거.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "required": ["id", "label", "cost", "text"],
+        "additionalProperties": false,
+        "properties": {
+          "id":    { "type": "string" },
+          "label": { "type": "string", "maxLength": 24 },
+          "cost":  { "type": "integer", "minimum": 1, "maximum": 3 },
+          "text":  { "type": "string", "maxLength": 200 }
+        }
+      }
+    },
+
+    "actions": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "required": ["id", "label", "treatsAsThreat", "correct", "effect", "result"],
+        "additionalProperties": false,
+        "properties": {
+          "id":    { "type": "string" },
+          "label": { "type": "string", "maxLength": 40 },
+          "treatsAsThreat": {
+            "description": "이 조치가 '위협으로 취급'하는가. truth.isRealThreat와 교차해 혼동행렬을 만든다.",
+            "type": "boolean"
+          },
+          "correct": { "type": "boolean" },
+          "effect": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "hull":  { "type": "integer" },
+              "life":  { "type": "integer" },
+              "trust": { "type": "integer" }
+            }
+          },
+          "result": { "type": "string", "maxLength": 220 }
+        }
+      }
+    }
+  }
+}

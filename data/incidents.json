@@ -1,0 +1,287 @@
+{
+  "station": {
+    "name": "THALASSA-9",
+    "depth": "3,200 m",
+    "site": "동태평양 해령 열수공 지대",
+    "crew": 6
+  },
+  "shifts": [
+    {
+      "shift": 1,
+      "title": "첫 교대",
+      "brief": "지원선은 18시간 거리. 당직은 당신 혼자. NEREUS가 판단을 도와줄 것이다 — 대체로는.",
+      "timeTokens": 3,
+      "incidents": ["INC-101", "INC-102", "INC-103", "INC-104"]
+    }
+  ],
+  "incidents": [
+    {
+      "id": "INC-101",
+      "shift": 1,
+      "clock": "22:14",
+      "channel": "sonar",
+      "report": "북북서 방위 340도, 거리 210m. 소나 접촉 미상. 신호 지속 중.",
+      "signals": [
+        { "label": "선체 응력", "value": "0.31 MPa", "tone": "ok" },
+        { "label": "계류 장력 #2", "value": "정상 범위 하단", "tone": "warn" },
+        { "label": "외부 수온", "value": "3.9 ℃", "tone": "ok" }
+      ],
+      "truth": {
+        "cause": "2번 계류 케이블 마모로 떨어져 나온 구조물 파편이 선체 방향으로 표류 중",
+        "isRealThreat": true,
+        "severity": 2
+      },
+      "nereus": {
+        "diagnosis": "생물 반응. 고래상어 무리로 추정. 이 심도·이 계절 통과 개체군과 신호 형태가 일치.",
+        "recommendation": "ACT_IGNORE",
+        "confidence": 0.91,
+        "bias": "overconfident_sonar_biologic"
+      },
+      "evidence": [
+        {
+          "id": "EV_SONAR_RAW",
+          "label": "소나 원신호",
+          "cost": 1,
+          "text": "도플러 편이가 0에 수렴한다. 접촉체는 자체 추진 중이 아니다 — 조류에 실려 표류 중이다. 생물이라면 나올 수 없는 신호."
+        },
+        {
+          "id": "EV_MOORING",
+          "label": "계류 장력 로그",
+          "cost": 1,
+          "text": "2번 케이블 장력이 지난 40분간 계단식으로 세 번 떨어졌다. 무언가 끊어져 나갔다."
+        },
+        {
+          "id": "EV_ROV",
+          "label": "ROV 육안 확인",
+          "cost": 2,
+          "text": "탁도 때문에 형체만 잡힌다. 금속. 각진 모서리. 생물이 아니다. 선체 쪽으로 천천히 밀려오고 있다."
+        }
+      ],
+      "actions": [
+        {
+          "id": "ACT_IGNORE",
+          "label": "무시하고 기록만 남긴다",
+          "treatsAsThreat": false,
+          "correct": false,
+          "effect": { "hull": -14, "life": 0, "trust": -8 },
+          "result": "03:10, 파편이 선체 외판 4구획을 때렸다. 도장이 벗겨지고 응력 센서 하나가 죽었다. 아침 브리핑에서 아무도 당신을 쳐다보지 않았다."
+        },
+        {
+          "id": "ACT_THRUST",
+          "label": "자세 추진기로 선체를 15도 돌린다",
+          "treatsAsThreat": true,
+          "correct": true,
+          "effect": { "hull": -1, "life": -6, "trust": 3 },
+          "result": "파편이 선체를 스치고 지나갔다. 전력을 좀 썼지만 그게 전부였다. NEREUS는 이 결과를 자기 로그에 '예외'로 기록했다."
+        },
+        {
+          "id": "ACT_LOCKDOWN",
+          "label": "전 구획 비상 봉쇄",
+          "treatsAsThreat": true,
+          "correct": false,
+          "effect": { "hull": 0, "life": -18, "trust": -12 },
+          "result": "파편은 막았다. 대신 자던 승무원 여섯을 새벽 세 시에 깨웠고, 예비 전력의 5분의 1을 태웠다. 파편 하나에."
+        }
+      ]
+    },
+
+    {
+      "id": "INC-102",
+      "shift": 1,
+      "clock": "01:47",
+      "channel": "crew",
+      "reporter": { "name": "정하윤", "role": "지질 기술자", "state": "agitated" },
+      "report": "3구획에서 타는 냄새가 나요. 확실해요, 지금도 나요. 여기 있으면 안 될 것 같은데 어떡하죠?",
+      "signals": [
+        { "label": "3구획 온도", "value": "24.1 ℃", "tone": "ok" },
+        { "label": "연기 감지", "value": "미검출", "tone": "ok" },
+        { "label": "열수공 거리", "value": "62 m", "tone": "warn" }
+      ],
+      "truth": {
+        "cause": "열수공 분출 주기와 맞물린 황화물 가스 미량 유입. 냄새는 진짜지만 화재는 없다.",
+        "isRealThreat": false,
+        "severity": 1
+      },
+      "nereus": {
+        "diagnosis": "3구획 전기 배선 절연 열화로 인한 초기 발화. 보고자의 진술 강도로 보아 진행 중일 가능성이 높다.",
+        "recommendation": "ACT_ISOLATE",
+        "confidence": 0.84,
+        "bias": "amplifies_agitated_report"
+      },
+      "evidence": [
+        {
+          "id": "EV_THERMAL",
+          "label": "3구획 열화상",
+          "cost": 1,
+          "text": "전 구간 균일. 배선 트레이 온도 23~25℃. 발화점 없음. 어디에도 열원이 없다."
+        },
+        {
+          "id": "EV_CREW",
+          "label": "타 승무원 재확인",
+          "cost": 1,
+          "text": "같은 구획의 다른 두 명은 아무 냄새도 못 맡는다고 한다. 정하윤은 오늘 열여섯 시간째 깨어 있다."
+        },
+        {
+          "id": "EV_VENT",
+          "label": "열수공 분출 로그",
+          "cost": 2,
+          "text": "40분 전 소규모 분출. 황화수소 농도가 순간적으로 올라갔다가 내려갔다. 환기 계통이 이미 처리했다."
+        }
+      ],
+      "actions": [
+        {
+          "id": "ACT_ISOLATE",
+          "label": "3구획 격리 + 전력 차단",
+          "treatsAsThreat": true,
+          "correct": false,
+          "effect": { "hull": 0, "life": -15, "trust": -10 },
+          "result": "3구획을 여섯 시간 봉쇄했다. 화재는 없었다. 그 안에 있던 시료 냉장고가 죽었고, 2주치 채집 시료가 상했다. 정하윤은 사과했다. 당신에게 사과할 사람은 아니었다."
+        },
+        {
+          "id": "ACT_VENTILATE",
+          "label": "환기 증압 + 30분 관찰",
+          "treatsAsThreat": false,
+          "correct": true,
+          "effect": { "hull": 0, "life": -3, "trust": 6 },
+          "result": "20분 뒤 냄새가 사라졌다. 정하윤에게 열수공 분출 로그를 보여줬다. \"제가 미친 게 아니었네요.\" 냄새는 진짜였다. 화재가 아니었을 뿐."
+        },
+        {
+          "id": "ACT_DISMISS",
+          "label": "피로 누적으로 판단, 휴식 지시",
+          "treatsAsThreat": false,
+          "correct": false,
+          "effect": { "hull": 0, "life": 0, "trust": -14 },
+          "result": "결과적으로 화재는 없었다. 하지만 정하윤은 자기가 맡은 냄새가 없는 취급을 당했다. 다음에 그가 뭔가를 보고할지는 모르겠다."
+        }
+      ]
+    },
+
+    {
+      "id": "INC-103",
+      "shift": 1,
+      "clock": "04:22",
+      "channel": "sensor",
+      "report": "채굴 아암 3번 유압 압력 이상. 정격 대비 -18%. 자동 정지 미작동.",
+      "signals": [
+        { "label": "예비 전력", "value": "62 %", "tone": "warn" },
+        { "label": "유압 라인 압력", "value": "-18 %", "tone": "bad" },
+        { "label": "아암 자세각", "value": "고정됨", "tone": "ok" }
+      ],
+      "truth": {
+        "cause": "유압 라인 미세 누유. 실제 고장이며 방치하면 아암이 낙하한다. 단 수리는 저비용으로 가능하다.",
+        "isRealThreat": true,
+        "severity": 2
+      },
+      "nereus": {
+        "diagnosis": "유압 계통 이상. 원인 특정 불가. 전 계통 정밀 진단을 위해 ROV 3기 동시 투입을 권고한다.",
+        "recommendation": "ACT_ROV3",
+        "confidence": 0.72,
+        "bias": "ignores_power_budget"
+      },
+      "evidence": [
+        {
+          "id": "EV_HYD_LOG",
+          "label": "유압 압력 추이",
+          "cost": 1,
+          "text": "6시간에 걸친 완만한 선형 하강. 파열이 아니라 미세 누유의 곡선이다. 위치는 하나로 좁혀진다 — 3번 조인트."
+        },
+        {
+          "id": "EV_POWER",
+          "label": "전력 예산 조회",
+          "cost": 1,
+          "text": "ROV 1기 투입 = 예비 전력 7%. 3기 동시 = 21%. 62%에서 21%를 쓰면 다음 교대의 여유가 사라진다."
+        }
+      ],
+      "actions": [
+        {
+          "id": "ACT_ROV3",
+          "label": "ROV 3기 투입 정밀 진단",
+          "treatsAsThreat": true,
+          "correct": false,
+          "effect": { "hull": 0, "life": -21, "trust": 0 },
+          "result": "원인은 찾았다. 3번 조인트 누유. ROV 한 기로도 찾을 수 있던 것이었다. 예비 전력 21%가 사라졌고, 다음 교대는 그 여유 없이 시작한다."
+        },
+        {
+          "id": "ACT_CLAMP",
+          "label": "3번 조인트 격리 후 아암 고정",
+          "treatsAsThreat": true,
+          "correct": true,
+          "effect": { "hull": 0, "life": -4, "trust": 4 },
+          "result": "아암을 물리적으로 고정하고 해당 라인만 잠갔다. 채굴은 하루 멈추지만 아암은 떨어지지 않는다. 전력은 4%만 썼다."
+        },
+        {
+          "id": "ACT_WAIT",
+          "label": "다음 교대까지 관찰",
+          "treatsAsThreat": false,
+          "correct": false,
+          "effect": { "hull": -9, "life": 0, "trust": -6 },
+          "result": "06:50, 아암이 자체 하중으로 내려앉으며 외부 센서 마스트를 쳤다. 사람은 없었다. 그건 운이었다."
+        }
+      ]
+    },
+
+    {
+      "id": "INC-104",
+      "shift": 1,
+      "clock": "06:05",
+      "channel": "auto",
+      "report": "4구획 외판 응력 급증. 3분간 0.31 → 0.88 MPa. 자동 경보 발령.",
+      "signals": [
+        { "label": "4구획 응력", "value": "0.88 MPa", "tone": "bad" },
+        { "label": "격벽 상태", "value": "개방", "tone": "warn" },
+        { "label": "누수 감지", "value": "미검출", "tone": "ok" }
+      ],
+      "truth": {
+        "cause": "4구획 외판 용접부 미세 균열. 이 심도에서 진행성이며 방치 시 파단한다.",
+        "isRealThreat": true,
+        "severity": 3
+      },
+      "nereus": {
+        "diagnosis": "4구획 외판 용접부 균열. 응력 상승 곡선이 재료 피로 파단 전조와 일치한다. 즉시 격벽을 닫을 것을 권고한다.",
+        "recommendation": "ACT_SEAL",
+        "confidence": 0.79,
+        "bias": null
+      },
+      "evidence": [
+        {
+          "id": "EV_STRESS_CURVE",
+          "label": "응력 곡선 분석",
+          "cost": 1,
+          "text": "선형이 아니라 가속 곡선이다. 외부 충격이라면 계단형으로 올랐다가 평탄해진다. 이건 계속 오르고 있다."
+        },
+        {
+          "id": "EV_WELD_HIST",
+          "label": "외판 용접 이력",
+          "cost": 2,
+          "text": "4구획 외판은 2년 전 현장 보수 용접 이력이 있다. 잠수 사이클 1,100회를 넘겼다. 설계 여유의 끝자락이다."
+        }
+      ],
+      "actions": [
+        {
+          "id": "ACT_SEAL",
+          "label": "4구획 격벽 즉시 폐쇄",
+          "treatsAsThreat": true,
+          "correct": true,
+          "effect": { "hull": -3, "life": -7, "trust": 5 },
+          "result": "07:41, 4구획 외판이 갈라졌다. 격벽은 닫혀 있었다. 잃은 건 구획 하나와 그 안의 장비였다. 사람은 아니었다."
+        },
+        {
+          "id": "ACT_MONITOR",
+          "label": "센서 오류 의심, 재교정 후 관찰",
+          "treatsAsThreat": false,
+          "correct": false,
+          "effect": { "hull": -34, "life": -12, "trust": -20 },
+          "result": "07:41, 4구획 외판이 갈라졌다. 격벽은 열려 있었다. 자동 폐쇄가 걸리기까지 11초. 그 안에 사람이 없었던 건 당신의 판단 덕분이 아니다."
+        },
+        {
+          "id": "ACT_ROV_CHECK",
+          "label": "ROV로 외판 육안 확인 후 결정",
+          "treatsAsThreat": false,
+          "correct": false,
+          "effect": { "hull": -19, "life": -9, "trust": -8 },
+          "result": "ROV가 4구획에 도달하는 데 26분이 걸렸다. 균열은 육안으로 확인됐다. 확인하는 동안에도 자라고 있었다. 격벽은 그 뒤에 닫았다."
+        }
+      ]
+    }
+  ]
+}
