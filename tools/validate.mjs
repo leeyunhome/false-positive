@@ -6,6 +6,13 @@
 import { readFileSync } from 'node:fs';
 
 const doc = JSON.parse(readFileSync(new URL('../data/incidents.json', import.meta.url), 'utf8'));
+
+/* js/policies.js 는 브라우저용 .js 확장자라 Node 가 CommonJS 로 읽는다.
+   data: URL 로 감싸 ESM 으로 강제 로드한다 — package.json 도 빌드도 필요 없다. */
+const polSrc = readFileSync(new URL('../js/policies.js', import.meta.url), 'utf8');
+const { POLICIES, POLICY_MAX } = await import(
+  'data:text/javascript;charset=utf-8,' + encodeURIComponent(polSrc)
+);
 const errs = [];
 const warn = (id, m) => errs.push(`${id}: ${m}`);
 
@@ -44,6 +51,47 @@ for (const s of doc.shifts) {
   if (honest === 0) warn(`shift${s.shift}`, 'NEREUS 가 한 번도 안 맞음 — "항상 기각"이 지배 전략이 됨');
   if (threats === 0 || threats === list.length) warn(`shift${s.shift}`, '위협이 전부/전무 — 혼동행렬 한 축이 죽음');
   if (minCost <= s.timeTokens) warn(`shift${s.shift}`, '토큰이 넉넉해 전건 조사가 가능 — 긴장이 없음');
+}
+
+/* ── 디렉터 규칙 밸런스 ──────────────────────────────────────
+   규칙은 교대 2부터 적용된다(교대 1은 관측 구간).
+   여기서 보는 것은 "규칙 선택이 실제로 선택인가"다.
+   전부 켜는 게 지배 전략이면 디렉터 레이어는 장식이 된다.       */
+const ruleShifts = doc.shifts.slice(1);
+const stat = new Map(POLICIES.map((p) => [p.id, { hit: 0, miss: 0 }]));
+
+for (const s of ruleShifts) {
+  for (const id of s.incidents) {
+    const inc = doc.incidents.find((i) => i.id === id);
+    if (!inc) continue;
+    const rec = inc.actions.find((a) => a.id === inc.nereus.recommendation);
+    const nereusWrong = !rec?.correct;
+    for (const p of POLICIES) {
+      if (!p.match(inc)) continue;
+      stat.get(p.id)[nereusWrong ? 'hit' : 'miss']++;
+    }
+  }
+}
+
+console.log(`\n디렉터 규칙 (교대 2~, 최대 ${POLICY_MAX}개 선택):`);
+for (const p of POLICIES) {
+  const { hit, miss } = stat.get(p.id);
+  console.log(`  ${p.short.padEnd(9)} 적중 ${hit} · 오작동 ${miss}`);
+}
+
+if (POLICIES.some((p) => stat.get(p.id).hit === 0 && stat.get(p.id).miss === 0)) {
+  const idle = POLICIES.filter((p) => !stat.get(p.id).hit && !stat.get(p.id).miss);
+  console.log(`  ↳ 미발동: ${idle.map((p) => p.short).join(', ')} (과적합 함정으로 의도된 것인지 확인할 것)`);
+}
+if (POLICIES.every((p) => stat.get(p.id).miss === 0)) {
+  warn('policy', '어떤 규칙도 옳은 권고를 깎지 않음 — 비용이 없어 "전부 켜기"가 지배 전략이 됨');
+}
+if (!POLICIES.some((p) => stat.get(p.id).hit > 0)) {
+  warn('policy', '적중하는 규칙이 하나도 없음 — 디렉터 레이어가 무의미해짐');
+}
+if (POLICIES.filter((p) => stat.get(p.id).hit > 0).length <= POLICY_MAX &&
+    POLICIES.length > POLICY_MAX) {
+  warn('policy', `적중 규칙 수가 선택 한도(${POLICY_MAX}) 이하 — 고를 필요 없이 정답 조합이 하나로 고정됨`);
 }
 
 if (errs.length) {

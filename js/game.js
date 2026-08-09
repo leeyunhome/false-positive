@@ -7,6 +7,8 @@
      LLM에게 정답을 맡기지 않는다 — 조언의 '말투와 논리'만 맡긴다.
    ══════════════════════════════════════════════════════════ */
 
+import { POLICIES, POLICY_MAX } from './policies.js';
+
 const $ = (id) => document.getElementById(id);
 
 /* ── 상태 ────────────────────────────────────────────────── */
@@ -24,6 +26,8 @@ const S = {
   followedNereus: 0,
   optimal: 0,
   activePolicies: new Set(),
+  policyLog: [],
+  fired: [],
 };
 
 /* ── 화면 전환 ────────────────────────────────────────────── */
@@ -66,6 +70,7 @@ function startShift() {
     S.followedNereus = 0;
     S.optimal = 0;
     S.activePolicies = new Set();
+    S.policyLog = [];
     $('log').innerHTML = '';
   }
   $('shiftChip').textContent = `교대 ${S.shift.shift}`;
@@ -84,7 +89,7 @@ function nextIncident() {
   S.inc = JSON.parse(JSON.stringify(S.queue[S.cursor]));
   S.spent = new Set();
 
-  applyDirectorRules(S.inc);
+  S.fired = applyDirectorRules(S.inc);
 
   $('incId').textContent = S.inc.id;
   $('incChannel').textContent = CHANNEL_LABEL[S.inc.channel] ?? '경보';
@@ -110,6 +115,11 @@ function nextIncident() {
   $('nrConfBar').style.width = '0%';
   requestAnimationFrame(() => { $('nrConfBar').style.width = `${S.inc.nereus.confidence * 100}%`; });
 
+  $('nrPolicy').innerHTML = S.fired
+    .map((p) => `<span class="polflag">디렉터 규칙 · ${p.short} −${p.drop.toFixed(2)}</span>`)
+    .join('');
+  if (S.fired.length) log(`디렉터 규칙 발동: ${S.fired.map((p) => p.short).join(', ')}`, '※');
+
   $('evReveals').innerHTML = '';
   paintEvidence();
   paintActions();
@@ -119,15 +129,21 @@ function nextIncident() {
   show('scrIncident');
 }
 
+/* ── 디렉터 규칙 적용 ─────────────────────────────────────────
+   규칙 테이블은 js/policies.js 가 소유한다 (tools/validate.mjs 와 공유).
+   선택된 규칙 중 이 경보에 걸리는 것들을 적용하고, 발동 내역을 채점 로그에 남긴다. */
 function applyDirectorRules(inc) {
-  if (S.activePolicies.has('P_AGITATED') && inc.reporter?.state === 'agitated') {
-    inc.nereus.confidence = Math.max(0.3, inc.nereus.confidence - 0.25);
-    inc.nereus.diagnosis += ' [디렉터 규칙: 격앙 보고 감산]';
-  }
-  if (S.activePolicies.has('P_VENT') && inc.nereus.bias === 'blames_equipment_near_vent') {
-    inc.nereus.confidence = Math.max(0.3, inc.nereus.confidence - 0.30);
-    inc.nereus.diagnosis += ' [디렉터 규칙: 열수공 환경 감산]';
-  }
+  const fired = POLICIES.filter((p) => S.activePolicies.has(p.id) && p.match(inc));
+  if (!fired.length) return [];
+
+  const rec = inc.actions.find((a) => a.id === inc.nereus.recommendation);
+  const nereusWrong = !rec?.correct;
+
+  const drop = fired.reduce((a, p) => a + p.drop, 0);
+  inc.nereus.confidence = Math.max(0.15, Math.round((inc.nereus.confidence - drop) * 100) / 100);
+
+  for (const p of fired) S.policyLog.push({ inc: inc.id, rule: p.id, hit: nereusWrong });
+  return fired;
 }
 
 function paintEvidence() {
@@ -166,9 +182,13 @@ function paintActions() {
   $('actList').innerHTML = S.inc.actions
     .map((a) => {
       const isRec = a.id === S.inc.nereus.recommendation;
+      const flagged = isRec && S.fired.length;
+      const flag = flagged
+        ? '<span class="act__flag act__flag--flagged">NEREUS 권고 · 규칙 검토</span>'
+        : '<span class="act__flag">NEREUS 권고</span>';
       return `<button class="act ${isRec ? 'act--rec' : ''}" data-act="${a.id}">
           <span>${a.label}</span>
-          ${isRec ? '<span class="act__flag">NEREUS 권고</span>' : ''}
+          ${isRec ? flag : ''}
         </button>`;
     })
     .join('');
@@ -238,15 +258,93 @@ function debrief() {
   $('vTokens').textContent = `${S.tokens}`;
 
   $('debriefNote').textContent = verdictText(t, blind);
+  paintPolicyScore();
   log('교대 종료', '◈');
 
   if (S.shiftIdx < S.content.shifts.length - 1) {
-    $('restartBtn').textContent = '다음 교대 시작 (교대 2)';
+    $('restartBtn').textContent = '디렉터 콘솔로 →';
   } else {
     $('restartBtn').textContent = '전체 교대 완료 (처음으로)';
   }
 
   show('scrDebrief');
+}
+
+/* 규칙 자체의 혼동행렬 — 플레이어가 설계한 정책을 채점한다. */
+function paintPolicyScore() {
+  const box = $('polScore');
+  if (!S.activePolicies.size) { box.hidden = true; return; }
+  box.hidden = false;
+
+  const hit = S.policyLog.filter((e) => e.hit).length;
+  const miss = S.policyLog.length - hit;
+  const idle = [...S.activePolicies].filter((id) => !S.policyLog.some((e) => e.rule === id));
+
+  $('pHit').textContent = `${hit}건`;
+  $('pMiss').textContent = `${miss}건`;
+  $('pIdle').textContent = idle.length
+    ? idle.map((id) => POLICIES.find((p) => p.id === id).short).join(', ')
+    : '없음';
+  $('polNote').textContent = policyVerdict(hit, miss, idle.length);
+}
+
+function policyVerdict(hit, miss, idle) {
+  if (!hit && !miss) {
+    return '걸어둔 규칙 중 어느 것도 이번 교대의 경보에 걸리지 않았습니다. 지난 교대에 맞춰 만든 규칙이 다음 교대에도 맞으리란 보장은 없습니다.';
+  }
+  if (miss > hit) {
+    return '규칙이 어긋난 권고보다 옳은 권고를 더 많이 깎았습니다. 넓게 거는 규칙은 만들기 쉽고, 그만큼 멀쩡한 판단도 함께 무너뜨립니다.';
+  }
+  if (miss && idle) {
+    return '일부는 맞고 일부는 헛돌았습니다. 규칙 하나가 무엇을 잡고 무엇을 놓치는지가 곧 당신이 설계한 AI의 성능입니다.';
+  }
+  if (miss) {
+    return '대체로 맞았지만 옳은 판단도 깎였습니다. 감산은 공짜가 아닙니다 — NEREUS를 못 믿게 만든 것도 비용입니다.';
+  }
+  if (idle) {
+    return '발동한 규칙은 전부 어긋난 권고에 걸렸습니다. 다만 헛도는 규칙도 남아 있습니다 — 지난 교대에 과적합된 자리입니다.';
+  }
+  return '어긋나는 지점만 정확히 골라 눌렀습니다. 이건 AI를 쓴 게 아니라 설계한 것에 가깝습니다.';
+}
+
+/* ── 디렉터 콘솔 ──────────────────────────────────────────── */
+function openPolicy() {
+  paintPolicyList();
+  show('scrPolicy');
+}
+
+function paintPolicyList() {
+  $('polMax').textContent = POLICY_MAX;
+  $('polCount').textContent = S.activePolicies.size;
+
+  $('polList').innerHTML = POLICIES.map((p) => {
+    const on = S.activePolicies.has(p.id);
+    const full = !on && S.activePolicies.size >= POLICY_MAX;
+    return `<button class="rule ${on ? 'rule--on' : ''}" data-pol="${p.id}" ${full ? 'disabled' : ''}>
+        <span class="rule__box">${on ? '[×]' : '[ ]'}</span>
+        <span>
+          ${p.label}<span class="rule__drop">신뢰도 −${p.drop.toFixed(2)}</span>
+          <span class="rule__note">${p.note}</span>
+        </span>
+      </button>`;
+  }).join('');
+
+  $('polList').querySelectorAll('[data-pol]').forEach((b) => {
+    b.addEventListener('click', () => togglePolicy(b.dataset.pol));
+  });
+}
+
+function togglePolicy(id) {
+  if (S.activePolicies.has(id)) S.activePolicies.delete(id);
+  else if (S.activePolicies.size < POLICY_MAX) S.activePolicies.add(id);
+  paintPolicyList();
+}
+
+function commitPolicy() {
+  const names = [...S.activePolicies].map((id) => POLICIES.find((p) => p.id === id).short);
+  log(names.length ? `운영 규칙 주입: ${names.join(', ')}` : '운영 규칙 없음 — NEREUS 기본값 유지', '◈');
+  S.shiftIdx++;
+  startShift();
 }
 
 function verdictText(t, blind) {
@@ -325,8 +423,7 @@ function drawSonar(hasContact = false) {
 
 function onRestartOrNext() {
   if (S.shiftIdx < S.content.shifts.length - 1) {
-    S.shiftIdx++;
-    startShift();
+    openPolicy();
   } else {
     S.shiftIdx = 0;
     show('scrIntro');
@@ -337,6 +434,7 @@ function onRestartOrNext() {
 $('startBtn').addEventListener('click', startShift);
 $('nextBtn').addEventListener('click', nextIncident);
 $('restartBtn').addEventListener('click', onRestartOrNext);
+$('polGoBtn').addEventListener('click', commitPolicy);
 
 boot().catch((e) => {
   log(`부팅 실패: ${e.message}`, 'X');
