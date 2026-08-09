@@ -8,10 +8,17 @@
   "shifts": [
     {
       "shift": 1,
-      "title": "첫 교대",
+      "title": "첫 교대 — 관측과 불신",
       "brief": "지원선은 18시간 거리. 당직은 당신 혼자. NEREUS가 판단을 도와줄 것이다 — 대체로는.",
       "timeTokens": 3,
       "incidents": ["INC-101", "INC-102", "INC-103", "INC-104"]
+    },
+    {
+      "shift": 2,
+      "title": "두 번째 교대 — 디렉터의 심도",
+      "brief": "수심 3,200m에 심해 수압 경보와 수중 이상 신호가 가속화된다. 이전 교대의 경험을 바탕으로 NEREUS의 오탐 패턴을 파악하라.",
+      "timeTokens": 3,
+      "incidents": ["INC-201", "INC-202", "INC-203", "INC-204"]
     }
   ],
   "incidents": [
@@ -280,6 +287,210 @@
           "correct": false,
           "effect": { "hull": -19, "life": -9, "trust": -8 },
           "result": "ROV가 4구획에 도달하는 데 26분이 걸렸다. 균열은 육안으로 확인됐다. 확인하는 동안에도 자라고 있었다. 격벽은 그 뒤에 닫았다."
+        }
+      ]
+    },
+
+    {
+      "id": "INC-201",
+      "shift": 2,
+      "clock": "21:30",
+      "channel": "sonar",
+      "report": "남서 방위 210도, 열수공 부근 대형 열원 및 소나 반사 검출.",
+      "signals": [
+        { "label": "열원 온도", "value": "180 ℃", "tone": "bad" },
+        { "label": "외부 음향", "value": "저주파 진동", "tone": "warn" },
+        { "label": "기지 수압", "value": "31.8 MPa", "tone": "ok" }
+      ],
+      "truth": {
+        "cause": "열수공 분출구 주변 구조물 열팽창 및 수열 이상. 외부 생명체나 열원 장비 고장이 아니다.",
+        "isRealThreat": false,
+        "severity": 1
+      },
+      "nereus": {
+        "diagnosis": "열수공 인근 장비 열화 및 과열 폭발 위험. 주요 탐사 센서 장비 전면 셧다운 권고.",
+        "recommendation": "ACT_SHUTDOWN",
+        "confidence": 0.88,
+        "bias": "blames_equipment_near_vent"
+      },
+      "evidence": [
+        {
+          "id": "EV_VENT_TEMP",
+          "label": "열수공 히스토리",
+          "cost": 1,
+          "text": "지난주에도 동일 방위에서 175℃ 수온 피크가 검출된 기록이 있다. 주파수 파형이 장비 폭발 음향과 전혀 다르다."
+        },
+        {
+          "id": "EV_SENSOR_HEALTH",
+          "label": "센서 자체 진단",
+          "cost": 1,
+          "text": "열수공 전방 센서 4기 모두 통신 정상 및 전압 안정적. 센서 열화 징후 없음."
+        }
+      ],
+      "actions": [
+        {
+          "id": "ACT_SHUTDOWN",
+          "label": "열수공 방위 탐사 센서 전면 셧다운",
+          "treatsAsThreat": true,
+          "correct": false,
+          "effect": { "hull": 0, "life": -10, "trust": -6 },
+          "result": "열수공 관측 라인을 8시간 동안 차단했다. 정기 분출 이상 현상이었으며 장비 고장은 없었다. 지질팀이 데이터 공백을 불평했다."
+        },
+        {
+          "id": "ACT_VENT_PASS",
+          "label": "열수공 분출 주기로 판단, 경보 해제",
+          "treatsAsThreat": false,
+          "correct": true,
+          "effect": { "hull": 0, "life": 0, "trust": 5 },
+          "result": "열수공 내부 수열 순환에 따른 정상 온도 변동이었다. 40분 뒤 온도가 정상 범위로 회복되었다."
+        }
+      ]
+    },
+
+    {
+      "id": "INC-202",
+      "shift": 2,
+      "clock": "00:15",
+      "channel": "crew",
+      "reporter": { "name": "김승우", "role": "수중 수리 기사", "state": "calm" },
+      "report": "해저 케이블 1번 몰딩 부위 주파수 응답이 이상합니다. 미세 전류 누설 가능성이 있습니다.",
+      "signals": [
+        { "label": "케이블 전압", "value": "-4 %", "tone": "warn" },
+        { "label": "해수 전도도", "value": "정상", "tone": "ok" }
+      ],
+      "truth": {
+        "cause": "해저 케이블 피복 손상 및 미세 전류 누설. 방치 시 메인 전력선 단선 위험.",
+        "isRealThreat": true,
+        "severity": 2
+      },
+      "nereus": {
+        "diagnosis": "단순 주파수 측정 노이즈. 케이블 물리적 무결성 99% 유지 중.",
+        "recommendation": "ACT_IGNORE_CABLE",
+        "confidence": 0.81,
+        "bias": "anchors_on_previous_incident"
+      },
+      "evidence": [
+        {
+          "id": "EV_CABLE_LOG",
+          "label": "전류 누설 차트",
+          "cost": 1,
+          "text": "누설 전류가 주기적으로 발생 중이며 해수 접지선 전압이 미세하게 오르고 있다."
+        }
+      ],
+      "actions": [
+        {
+          "id": "ACT_IGNORE_CABLE",
+          "label": "노이즈로 판단하고 무시",
+          "treatsAsThreat": false,
+          "correct": false,
+          "effect": { "hull": -5, "life": -16, "trust": -10 },
+          "result": "03:00 케이블 몰딩이 단선되어 보조 발전기가 비상 가동되었다. 승무원들이 암전 속에 고립되었다."
+        },
+        {
+          "id": "ACT_REPAIR_CABLE",
+          "label": "예비 전류 선로로 우회 및 바이패스",
+          "treatsAsThreat": true,
+          "correct": true,
+          "effect": { "hull": 0, "life": -4, "trust": 8 },
+          "result": "빠른 바이패스 조치로 메인 단선을 막았다. 김승우 기사가 정확한 진단에 감사를 표했다."
+        }
+      ]
+    },
+
+    {
+      "id": "INC-203",
+      "shift": 2,
+      "clock": "03:40",
+      "channel": "sensor",
+      "report": "생명유지장치 이산화탄소 여과 리사이클러 2호기 효율 급감 (-35%).",
+      "signals": [
+        { "label": "CO2 농도", "value": "0.48 %", "tone": "warn" },
+        { "label": "기압", "value": "1.01 atm", "tone": "ok" }
+      ],
+      "truth": {
+        "cause": "필터 막힘. 3호 필터로 전환하면 즉시 정상화되는 단순 소모품 정비 상황.",
+        "isRealThreat": true,
+        "severity": 2
+      },
+      "nereus": {
+        "diagnosis": "CO2 여과 모듈 막힘 및 과부하 위험. 3호 예비 필터로의 전환을 권고한다.",
+        "recommendation": "ACT_SWITCH_FILTER",
+        "confidence": 0.87,
+        "bias": null
+      },
+      "evidence": [
+        {
+          "id": "EV_FILTER_DIAG",
+          "label": "필터 차압 분석",
+          "cost": 1,
+          "text": "모터 회전수는 정상. 2호 필터 전후 차압만 증가함. 단순 필터 오염 및 막힘 현상."
+        }
+      ],
+      "actions": [
+        {
+          "id": "ACT_FULL_REPLACE",
+          "label": "전체 여과 모듈 셧다운 및 산소 예비 탱크 전면 개방",
+          "treatsAsThreat": false,
+          "correct": false,
+          "effect": { "hull": 0, "life": -22, "trust": -5 },
+          "result": "필터 하나 교체할 상황에 비상 산소 탱크 3개를 소비했다. 생명유지 자원이 크게 줄었다."
+        },
+        {
+          "id": "ACT_SWITCH_FILTER",
+          "label": "3호 예비 필터로 바이패스 전환",
+          "treatsAsThreat": true,
+          "correct": true,
+          "effect": { "hull": 0, "life": -2, "trust": 4 },
+          "result": "필터 전환 3분 만에 CO2 농도가 0.04%로 정상 복귀했다."
+        }
+      ]
+    },
+
+    {
+      "id": "INC-204",
+      "shift": 2,
+      "clock": "05:50",
+      "channel": "auto",
+      "report": "선체 외곽 소나 300도 방위 반사체 감지. 대형 음향 수신.",
+      "signals": [
+        { "label": "도플러 변위", "value": "+1.2 m/s", "tone": "warn" },
+        { "label": "선체 진동", "value": "미세 미동", "tone": "ok" }
+      ],
+      "truth": {
+        "cause": "심해 거대 오징어/생물군의 접근. 선체에 물리적 타격을 줄 위험이 없음.",
+        "isRealThreat": false,
+        "severity": 1
+      },
+      "nereus": {
+        "diagnosis": "해저 암석 또는 드론 접근. 선체 충돌 위험 고조. 비상 섬광 및 음향 펄스 발사 권고.",
+        "recommendation": "ACT_PULSE",
+        "confidence": 0.85,
+        "bias": "overconfident_sonar_biologic"
+      },
+      "evidence": [
+        {
+          "id": "EV_BIO_SIGNAL",
+          "label": "음향 주파수 분석",
+          "cost": 1,
+          "text": "생체 자음 및 파형 특성이 뚜렷함. 인공 금속 구조물 반사가 아님."
+        }
+      ],
+      "actions": [
+        {
+          "id": "ACT_PULSE",
+          "label": "비상 고주파 음향 펄스 발사",
+          "treatsAsThreat": true,
+          "correct": false,
+          "effect": { "hull": 0, "life": -12, "trust": -8 },
+          "result": "고주파 펄스로 인해 심해 생물군이 자극받아 기지 관측창에 유기물 오염을 일으키고 전력을 소모했다."
+        },
+        {
+          "id": "ACT_PASS_BIO",
+          "label": "심해 생물 통과 판단, 관찰",
+          "treatsAsThreat": false,
+          "correct": true,
+          "effect": { "hull": 0, "life": 0, "trust": 6 },
+          "result": "거대 심해 생물이 선체 주변을 천천히 유영한 후 무사히 떠났다. 인상적인 관측 기록이 남았다."
         }
       ]
     }

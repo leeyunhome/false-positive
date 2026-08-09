@@ -12,6 +12,7 @@ const $ = (id) => document.getElementById(id);
 /* ── 상태 ────────────────────────────────────────────────── */
 const S = {
   content: null,
+  shiftIdx: 0,
   shift: null,
   queue: [],
   cursor: 0,
@@ -22,6 +23,7 @@ const S = {
   tally: { TP: 0, FP: 0, FN: 0, TN: 0 },
   followedNereus: 0,
   optimal: 0,
+  activePolicies: new Set(),
 };
 
 /* ── 화면 전환 ────────────────────────────────────────────── */
@@ -42,7 +44,8 @@ function log(text, mark = '') {
 async function boot() {
   const res = await fetch('data/incidents.json');
   S.content = await res.json();
-  S.shift = S.content.shifts[0];
+  S.shiftIdx = 0;
+  S.shift = S.content.shifts[S.shiftIdx];
   $('introBrief').textContent = S.shift.brief;
   $('shiftChip').textContent = `교대 ${S.shift.shift}`;
   paintVitals();
@@ -52,15 +55,21 @@ async function boot() {
 }
 
 function startShift() {
+  S.shift = S.content.shifts[S.shiftIdx];
   S.queue = S.shift.incidents.map((id) => S.content.incidents.find((i) => i.id === id));
   S.cursor = 0;
   S.tokens = S.shift.timeTokens;
-  S.vitals = { hull: 100, life: 100, trust: 100 };
-  S.tally = { TP: 0, FP: 0, FN: 0, TN: 0 };
-  S.followedNereus = 0;
-  S.optimal = 0;
-  $('log').innerHTML = '';
-  log(`교대 ${S.shift.shift} 개시 · 시간 토큰 ${S.tokens}`, '▸');
+  S.spent = new Set();
+  if (S.shiftIdx === 0) {
+    S.vitals = { hull: 100, life: 100, trust: 100 };
+    S.tally = { TP: 0, FP: 0, FN: 0, TN: 0 };
+    S.followedNereus = 0;
+    S.optimal = 0;
+    S.activePolicies = new Set();
+    $('log').innerHTML = '';
+  }
+  $('shiftChip').textContent = `교대 ${S.shift.shift}`;
+  log(`교대 ${S.shift.shift} 개시 (${S.shift.title}) · 시간 토큰 ${S.tokens}`, '▸');
   paintVitals();
   nextIncident();
 }
@@ -72,8 +81,10 @@ const STATE_LABEL = { calm: '평온', agitated: '격앙됨', exhausted: '탈진'
 function nextIncident() {
   if (S.cursor >= S.queue.length) return debrief();
 
-  S.inc = S.queue[S.cursor];
+  S.inc = JSON.parse(JSON.stringify(S.queue[S.cursor]));
   S.spent = new Set();
+
+  applyDirectorRules(S.inc);
 
   $('incId').textContent = S.inc.id;
   $('incChannel').textContent = CHANNEL_LABEL[S.inc.channel] ?? '경보';
@@ -85,7 +96,6 @@ function nextIncident() {
     ? `— ${S.inc.reporter.name} · ${S.inc.reporter.role} · ${STATE_LABEL[S.inc.reporter.state]}`
     : '';
 
-  // 계기판
   $('incSignals').innerHTML = (S.inc.signals ?? [])
     .map((s) => `<div class="sig sig--${s.tone}">
         <span class="sig__label">${s.label}</span>
@@ -93,7 +103,6 @@ function nextIncident() {
       </div>`)
     .join('');
 
-  // NEREUS 브리핑
   const rec = S.inc.actions.find((a) => a.id === S.inc.nereus.recommendation);
   $('nrDiag').textContent = S.inc.nereus.diagnosis;
   $('nrRec').textContent = rec ? rec.label : '판단 보류';
@@ -108,6 +117,17 @@ function nextIncident() {
   log(`${S.inc.clock}  ${S.inc.id} 수신`, '!');
   drawSonar(S.inc.channel === 'sonar');
   show('scrIncident');
+}
+
+function applyDirectorRules(inc) {
+  if (S.activePolicies.has('P_AGITATED') && inc.reporter?.state === 'agitated') {
+    inc.nereus.confidence = Math.max(0.3, inc.nereus.confidence - 0.25);
+    inc.nereus.diagnosis += ' [디렉터 규칙: 격앙 보고 감산]';
+  }
+  if (S.activePolicies.has('P_VENT') && inc.nereus.bias === 'blames_equipment_near_vent') {
+    inc.nereus.confidence = Math.max(0.3, inc.nereus.confidence - 0.30);
+    inc.nereus.diagnosis += ' [디렉터 규칙: 열수공 환경 감산]';
+  }
 }
 
 function paintEvidence() {
@@ -163,7 +183,6 @@ function resolve(actId) {
   const act = S.inc.actions.find((a) => a.id === actId);
   const threat = S.inc.truth.isRealThreat;
 
-  // 혼동행렬: 실제 위협 여부 × 플레이어가 위협으로 대응했는지
   if (threat && act.treatsAsThreat) S.tally.TP++;
   else if (!threat && act.treatsAsThreat) S.tally.FP++;
   else if (threat && !act.treatsAsThreat) S.tally.FN++;
@@ -191,7 +210,7 @@ function resolve(actId) {
 
   log(`조치: ${act.label}`, '>');
   S.cursor++;
-  $('nextBtn').textContent = S.cursor >= S.queue.length ? '교대 종료' : '다음 경보';
+  $('nextBtn').textContent = S.cursor >= S.queue.length ? '교대 결산' : '다음 경보';
   show('scrOutcome');
 }
 
@@ -207,19 +226,26 @@ function paintVitals() {
 /* ── 결산 ────────────────────────────────────────────────── */
 function debrief() {
   const t = S.tally;
-  const n = S.queue.length;
+  const totalProcessed = S.tally.TP + S.tally.FP + S.tally.FN + S.tally.TN;
   $('mTP').textContent = t.TP;
   $('mFP').textContent = t.FP;
   $('mFN').textContent = t.FN;
   $('mTN').textContent = t.TN;
 
-  const blind = Math.round((S.followedNereus / n) * 100);
-  $('vTrustAI').textContent = `${blind}%  (${S.followedNereus}/${n})`;
-  $('vOptimal').textContent = `${S.optimal}/${n}`;
+  const blind = Math.round((S.followedNereus / totalProcessed) * 100);
+  $('vTrustAI').textContent = `${blind}%  (${S.followedNereus}/${totalProcessed})`;
+  $('vOptimal').textContent = `${S.optimal}/${totalProcessed}`;
   $('vTokens').textContent = `${S.tokens}`;
 
   $('debriefNote').textContent = verdictText(t, blind);
   log('교대 종료', '◈');
+
+  if (S.shiftIdx < S.content.shifts.length - 1) {
+    $('restartBtn').textContent = '다음 교대 시작 (교대 2)';
+  } else {
+    $('restartBtn').textContent = '전체 교대 완료 (처음으로)';
+  }
+
   show('scrDebrief');
 }
 
@@ -246,7 +272,6 @@ function drawSonar(hasContact = false) {
   const R = c.width / 2;
   let a = 0;
 
-  // 생물발광 파티클 — 결정론적 배치(Math.random 미사용, 재현 가능)
   const motes = Array.from({ length: 22 }, (_, i) => ({
     r: ((i * 37) % 100) / 100 * (R - 14) + 8,
     th: (i * 2.399),
@@ -258,7 +283,6 @@ function drawSonar(hasContact = false) {
     g.clearRect(0, 0, c.width, c.height);
     g.translate(R, R);
 
-    // 링
     g.strokeStyle = 'rgba(26,127,138,.35)';
     g.lineWidth = 1;
     for (let i = 1; i <= 3; i++) {
@@ -266,7 +290,6 @@ function drawSonar(hasContact = false) {
     }
     g.beginPath(); g.moveTo(-R, 0); g.lineTo(R, 0); g.moveTo(0, -R); g.lineTo(0, R); g.stroke();
 
-    // 스윕
     const grad = g.createConicGradient ? g.createConicGradient(a, 0, 0) : null;
     if (grad) {
       grad.addColorStop(0, 'rgba(53,224,232,.30)');
@@ -279,7 +302,6 @@ function drawSonar(hasContact = false) {
     g.beginPath(); g.moveTo(0, 0);
     g.lineTo(Math.cos(a) * (R - 6), Math.sin(a) * (R - 6)); g.stroke();
 
-    // 생물발광
     motes.forEach((m) => {
       const x = Math.cos(m.th) * m.r, y = Math.sin(m.th) * m.r;
       const lit = Math.max(0, 1 - Math.abs(((a - m.th + Math.PI * 4) % (Math.PI * 2))) / 1.1);
@@ -287,7 +309,6 @@ function drawSonar(hasContact = false) {
       g.beginPath(); g.arc(x, y, 1.6 + lit * 1.2, 0, Math.PI * 2); g.fill();
     });
 
-    // 미상 접촉
     if (hasContact) {
       const cx = Math.cos(-1.92) * (R * 0.66), cy = Math.sin(-1.92) * (R * 0.66);
       const lit = Math.max(0, 1 - Math.abs(((a + 1.92 + Math.PI * 4) % (Math.PI * 2))) / 1.4);
@@ -302,10 +323,20 @@ function drawSonar(hasContact = false) {
   }, 33);
 }
 
+function onRestartOrNext() {
+  if (S.shiftIdx < S.content.shifts.length - 1) {
+    S.shiftIdx++;
+    startShift();
+  } else {
+    S.shiftIdx = 0;
+    show('scrIntro');
+  }
+}
+
 /* ── 배선 ────────────────────────────────────────────────── */
 $('startBtn').addEventListener('click', startShift);
 $('nextBtn').addEventListener('click', nextIncident);
-$('restartBtn').addEventListener('click', () => show('scrIntro'));
+$('restartBtn').addEventListener('click', onRestartOrNext);
 
 boot().catch((e) => {
   log(`부팅 실패: ${e.message}`, 'X');
