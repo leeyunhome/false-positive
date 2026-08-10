@@ -9,10 +9,12 @@ const doc = JSON.parse(readFileSync(new URL('../data/incidents.json', import.met
 
 /* js/policies.js 는 브라우저용 .js 확장자라 Node 가 CommonJS 로 읽는다.
    data: URL 로 감싸 ESM 으로 강제 로드한다 — package.json 도 빌드도 필요 없다. */
-const polSrc = readFileSync(new URL('../js/policies.js', import.meta.url), 'utf8');
-const { POLICIES, POLICY_MAX } = await import(
-  'data:text/javascript;charset=utf-8,' + encodeURIComponent(polSrc)
+const esm = (rel) => import(
+  'data:text/javascript;charset=utf-8,' +
+  encodeURIComponent(readFileSync(new URL(rel, import.meta.url), 'utf8'))
 );
+const { POLICIES, POLICY_MAX } = await esm('../js/policies.js');
+const { SITES } = await esm('../js/stations.js');
 const errs = [];
 const warn = (id, m) => errs.push(`${id}: ${m}`);
 
@@ -34,6 +36,12 @@ for (const inc of doc.incidents) {
   if (new Set(ids).size !== ids.length) warn(inc.id, 'action id 중복');
   if (inc.channel === 'crew' && !inc.reporter) warn(inc.id, 'crew 채널인데 reporter 없음');
   if (inc.evidence.length === 0) warn(inc.id, '증거 없음 — 조사 동사가 무의미해짐');
+
+  for (const e of inc.evidence) {
+    if (!e.site) warn(inc.id, `${e.id} 에 site 없음 — 쿼터뷰 맵에서 갈 곳이 없음`);
+    else if (!SITES.some((s) => s.id === e.site))
+      warn(inc.id, `${e.id} 의 site "${e.site}" 가 js/stations.js 에 없음`);
+  }
 
   const bias = inc.nereus.bias;
   if (bias && rec?.correct) warn(inc.id, `bias(${bias})가 있는데 NEREUS 권고가 정답임`);
@@ -92,6 +100,15 @@ if (!POLICIES.some((p) => stat.get(p.id).hit > 0)) {
 if (POLICIES.filter((p) => stat.get(p.id).hit > 0).length <= POLICY_MAX &&
     POLICIES.length > POLICY_MAX) {
   warn('policy', `적중 규칙 수가 선택 한도(${POLICY_MAX}) 이하 — 고를 필요 없이 정답 조합이 하나로 고정됨`);
+}
+
+/* ── 배치도 활용도 ──────────────────────────────────────────
+   맵에 있는데 아무 증거도 가리키지 않는 지점은 죽은 장식이다.   */
+const used = new Set(doc.incidents.flatMap((i) => i.evidence.map((e) => e.site)));
+const unused = SITES.filter((s) => !used.has(s.id));
+console.log(`\n배치도: 지점 ${SITES.length} · 증거가 가리키는 지점 ${used.size}`);
+if (unused.length) {
+  console.log(`  ↳ 미사용: ${unused.map((s) => s.label).join(', ')}`);
 }
 
 if (errs.length) {

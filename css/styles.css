@@ -254,6 +254,27 @@ body {
 .verdict b { font: 700 14px var(--mono); color: var(--cyan); }
 .debrief__note { color: var(--ink-dim); font-size: 13.5px; margin-bottom: 26px; min-height: 44px; }
 
+/* ── 쿼터뷰 배치도 ── */
+.layout {
+  margin: 0 0 12px; border: 1px solid var(--line); border-radius: 4px;
+  background: radial-gradient(80% 90% at 50% 40%, rgba(13, 43, 65, .6), rgba(3, 12, 20, .55));
+  overflow: hidden;
+}
+.layout canvas { display: block; width: 100%; height: auto; cursor: crosshair; }
+/* 좁은 화면에서 축소하면 10px 라벨이 읽히지 않는다 — 줄이지 말고 가로 스크롤. */
+@media (max-width: 700px) {
+  .layout { overflow-x: auto; }
+  .layout canvas { width: 620px; max-width: none; }
+}
+.layout__cap {
+  font: 600 10.5px var(--mono); letter-spacing: .12em; color: var(--ink-dim);
+  padding: 7px 11px; border-top: 1px solid var(--line);
+  display: flex; justify-content: space-between; gap: 10px;
+}
+.layout__cap b { color: var(--cyan); font-weight: 700; }
+.layout--busy .layout__cap { color: var(--amber); }
+.layout--busy .layout__cap b { color: var(--amber); }
+
 /* ── 디렉터 규칙 배지 (경보 화면) ── */
 .polflags { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 11px; }
 .polflags:empty { margin-top: 0; }

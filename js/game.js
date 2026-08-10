@@ -8,6 +8,8 @@
    ══════════════════════════════════════════════════════════ */
 
 import { POLICIES, POLICY_MAX } from './policies.js';
+import { initLayout, resetLayout, probeTo, skipTravel, isTraveling } from './layout.js';
+import { siteById } from './stations.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -54,6 +56,7 @@ async function boot() {
   $('shiftChip').textContent = `교대 ${S.shift.shift}`;
   paintVitals();
   drawSonar();
+  initLayout($('layout'));
   log('관제 콘솔 연결됨', '◈');
   log(`${S.content.station.name} · 심도 ${S.content.station.depth}`);
 }
@@ -121,6 +124,8 @@ function nextIncident() {
   if (S.fired.length) log(`디렉터 규칙 발동: ${S.fired.map((p) => p.short).join(', ')}`, '※');
 
   $('evReveals').innerHTML = '';
+  resetLayout();
+  setCap(null, false);
   paintEvidence();
   paintActions();
 
@@ -164,18 +169,35 @@ function paintEvidence() {
 
 function buyEvidence(id) {
   const e = S.inc.evidence.find((x) => x.id === id);
-  if (!e || S.spent.has(id) || e.cost > S.tokens) return;
+  if (!e || S.spent.has(id) || e.cost > S.tokens || isTraveling()) return;
 
+  // 토큰은 즉시 빠진다 — 연출을 건너뛰어도 비용은 같다.
   S.spent.add(id);
   S.tokens -= e.cost;
   $('tokenChip').textContent = `조사 ${S.tokens}`;
-
-  const li = document.createElement('li');
-  li.innerHTML = `<b>${e.label}</b>${e.text}`;
-  $('evReveals').appendChild(li);
-
-  log(`증거 확보: ${e.label} (-${e.cost})`, '?');
   paintEvidence();
+
+  const site = siteById(e.site);
+  setCap(site, true);
+  log(`관측 초점 이동: ${site?.label ?? e.site}`, '→');
+
+  probeTo(e.site, () => {
+    setCap(site, false);
+    const li = document.createElement('li');
+    li.innerHTML = `<b>${e.label} · ${site?.label ?? ''}</b>${e.text}`;
+    $('evReveals').appendChild(li);
+    log(`증거 확보: ${e.label} (-${e.cost})`, '?');
+    paintEvidence();
+  });
+}
+
+/* 배치도 캡션 — 이동 중에는 앰버, 도착하면 시안. */
+function setCap(site, busy) {
+  const label = site?.label ?? '관제 코어';
+  $('layoutCap').innerHTML = busy
+    ? `<span>관측 초점 이동 중 · <b>${label}</b></span><span>클릭하면 건너뜀</span>`
+    : `<span>관측 초점 · <b>${label}</b></span><span></span>`;
+  $('layoutCap').closest('.layout').classList.toggle('layout--busy', !!busy);
 }
 
 function paintActions() {
@@ -200,6 +222,10 @@ function paintActions() {
 
 /* ── 판정 ────────────────────────────────────────────────── */
 function resolve(actId) {
+  // 초점 이동 중에 조치를 누르면 연출을 즉시 끝내고 증거를 먼저 공개한다.
+  // 산 증거가 화면에 뜨지 않은 채로 결과로 넘어가면 안 된다.
+  if (isTraveling()) skipTravel();
+
   const act = S.inc.actions.find((a) => a.id === actId);
   const threat = S.inc.truth.isRealThreat;
 
