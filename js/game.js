@@ -87,11 +87,16 @@ function setupViewToggle() {
 
   if (!btn3D || !btn2D) return;
 
+  // 초기 뷰 설정 (3D 활성화, 2D 관제콘솔 비활성화)
+  if (vp3D) vp3D.style.display = 'block';
+  if (ev2D) ev2D.style.display = 'none';
+
   btn3D.addEventListener('click', () => {
     S.activeView = '3D';
     btn3D.classList.add('tab-btn--active');
     btn2D.classList.remove('tab-btn--active');
     if (vp3D) vp3D.style.display = 'block';
+    if (ev2D) ev2D.style.display = 'none';
     if (S.rpg?.scene3d) S.rpg.scene3d.onResize();
   });
 
@@ -99,6 +104,8 @@ function setupViewToggle() {
     S.activeView = '2D';
     btn2D.classList.add('tab-btn--active');
     btn3D.classList.remove('tab-btn--active');
+    if (vp3D) vp3D.style.display = 'none';
+    if (ev2D) ev2D.style.display = 'block';
   });
 }
 

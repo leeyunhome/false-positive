@@ -585,6 +585,53 @@ export class Scene3D {
     this.playerMesh = root;
   }
 
+  isWalkable(x, z) {
+    if (!this.dungeonData) return true;
+    const { rooms, corridors, tileSize, gridWidth, gridHeight } = this.dungeonData;
+
+    // 1. 방 바운딩 체크
+    for (const room of rooms) {
+      const rx = (room.cx - gridWidth / 2) * tileSize;
+      const rz = (room.cz - gridHeight / 2) * tileSize;
+      const halfW = (room.w * tileSize) / 2;
+      const halfH = (room.h * tileSize) / 2;
+      const margin = 0.35; // 벽 두께 충돌 마진
+
+      if (Math.abs(x - rx) <= halfW - margin && Math.abs(z - rz) <= halfH - margin) {
+        return true;
+      }
+    }
+
+    // 2. 복도 및 목재 다리 바운딩 체크
+    for (const corr of corridors) {
+      const w1 = (corr.p1.x - gridWidth / 2) * tileSize;
+      const h1 = (corr.p1.z - gridHeight / 2) * tileSize;
+      const w2 = (corr.p2.x - gridWidth / 2) * tileSize;
+      const h2 = (corr.p2.z - gridHeight / 2) * tileSize;
+
+      const halfW = corr.width / 2;
+      const margin = 0.25;
+
+      if (Math.abs(h1 - h2) < 0.1) {
+        // 가로 복도
+        const minX = Math.min(w1, w2);
+        const maxX = Math.max(w1, w2);
+        if (x >= minX - margin && x <= maxX + margin && Math.abs(z - h1) <= halfW - 0.05) {
+          return true;
+        }
+      } else if (Math.abs(w1 - w2) < 0.1) {
+        // 세로 복도
+        const minZ = Math.min(h1, h2);
+        const maxZ = Math.max(h1, h2);
+        if (z >= minZ - margin && z <= maxZ + margin && Math.abs(x - w1) <= halfW - 0.05) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
   onResize() {
     if (!this.renderer || !this.camera || !this.container) return;
     const width = this.container.clientWidth || 800;
@@ -789,10 +836,23 @@ export class Scene3D {
 
     if (kx !== 0 || kz !== 0) {
       const len = Math.sqrt(kx * kx + kz * kz);
-      this.playerPos.x += (kx / len) * this.moveSpeed;
-      this.playerPos.z += (kz / len) * this.moveSpeed;
+      const nextX = this.playerPos.x + (kx / len) * this.moveSpeed;
+      const nextZ = this.playerPos.z + (kz / len) * this.moveSpeed;
+      
+      if (this.isWalkable(nextX, nextZ)) {
+        this.playerPos.x = nextX;
+        this.playerPos.z = nextZ;
+        walking = true;
+      } else {
+        if (this.isWalkable(nextX, this.playerPos.z)) {
+          this.playerPos.x = nextX;
+          walking = true;
+        } else if (this.isWalkable(this.playerPos.x, nextZ)) {
+          this.playerPos.z = nextZ;
+          walking = true;
+        }
+      }
       this.isMoving = false;
-      walking = true;
     } else if (this.isMoving) {
       const dx = this.targetPos.x - this.playerPos.x;
       const dz = this.targetPos.z - this.playerPos.z;
@@ -800,9 +860,23 @@ export class Scene3D {
       if (dist < 0.2) {
         this.isMoving = false;
       } else {
-        this.playerPos.x += (dx / dist) * this.moveSpeed;
-        this.playerPos.z += (dz / dist) * this.moveSpeed;
-        walking = true;
+        const nextX = this.playerPos.x + (dx / dist) * this.moveSpeed;
+        const nextZ = this.playerPos.z + (dz / dist) * this.moveSpeed;
+        if (this.isWalkable(nextX, nextZ)) {
+          this.playerPos.x = nextX;
+          this.playerPos.z = nextZ;
+          walking = true;
+        } else {
+          if (this.isWalkable(nextX, this.playerPos.z)) {
+            this.playerPos.x = nextX;
+            walking = true;
+          } else if (this.isWalkable(this.playerPos.x, nextZ)) {
+            this.playerPos.z = nextZ;
+            walking = true;
+          } else {
+            this.isMoving = false;
+          }
+        }
       }
     }
 
