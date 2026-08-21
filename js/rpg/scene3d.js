@@ -1,17 +1,19 @@
 /* ══════════════════════════════════════════════════════════
-   THALASSA-9 RPG: 3D 쿼터뷰 (Isometric) 심해 기지 엔진 v2.1
-   Planescape: Torment식 고딕-인더스트리얼 디테일 & OpenMMO 3D 렌더링
+   THALASSA-9 RPG: 토먼트 고딕 석조 & 디아블로식 절차적 3D 엔진 v3.0
+   Planescape: Torment 정통 비주얼 (석조 바닥, 비계 나무다리, 철창 랜턴, 녹색 선택 링)
    ══════════════════════════════════════════════════════════ */
 
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
-import { SITES, LINKS, siteById } from '../stations.js';
+import { SITES, siteById } from '../stations.js';
 import {
-  createGrateFloorTexture,
+  createStoneFlagstoneTexture,
+  createWoodScaffoldTexture,
   createHazardStripeTexture,
   createBulkheadPanelTexture,
 } from './textures.js';
+import { DungeonGenerator } from './dungeonGenerator.js';
 
-// OpenMMO 표준 등각 투영(Isometric) 상수
+// OpenMMO 표준 등각 투영(Isometric) 각도
 export const ISO_PITCH = Math.atan(1 / Math.sqrt(2)); // ~35.264도
 export const ISO_YAW = -Math.PI / 4;                  // -45도
 export const ISO_DISTANCE = 38;
@@ -29,9 +31,14 @@ export class Scene3D {
     this.raycaster = new THREE.Raycaster();
     this.mouse = new THREE.Vector2();
 
+    this.dungeonGen = new DungeonGenerator({ minRooms: 6, maxRooms: 8 });
+    this.dungeonData = null;
+    this.dungeonGroup = new THREE.Group();
+
     // 텍스처
     this.textures = {
-      grate: null,
+      stone: null,
+      wood: null,
       hazard: null,
       bulkhead: null,
     };
@@ -41,19 +48,18 @@ export class Scene3D {
     this.playerLimbs = { leftLeg: null, rightLeg: null, torso: null, head: null };
     this.playerFlashlight = null;
     this.siteMeshes = new Map();
-    this.corridorGroup = new THREE.Group();
     this.monsterMeshes = new Map();
+    this.lanternLights = [];
     this.particles = null;
     this.bubbleParticles = null;
     this.floatingTexts = [];
-    this.animatedObjects = []; // 매 프레임 회전/맥동할 오브젝트들
-    this.emergencyStrobe = null; // 비상 회전 경광등
+    this.animatedObjects = [];
 
     // 플레이어 좌표 & 이동
     this.playerPos = new THREE.Vector3(0, 0.6, 0);
     this.targetPos = new THREE.Vector3(0, 0.6, 0);
     this.isMoving = false;
-    this.moveSpeed = 0.13;
+    this.moveSpeed = 0.14;
     this.walkCycle = 0;
 
     this.keys = {};
@@ -66,14 +72,14 @@ export class Scene3D {
     const width = (this.container && this.container.clientWidth) || 800;
     const height = (this.container && this.container.clientHeight) || 380;
 
-    // 1. Scene & Deep Sea Fog
+    // 1. Scene & Deep Abyss Gothic Fog
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x02070e);
-    this.scene.fog = new THREE.FogExp2(0x030a14, 0.024);
+    this.scene.background = new THREE.Color(0x04080e);
+    this.scene.fog = new THREE.FogExp2(0x050c16, 0.022);
 
     // 2. Camera: True Isometric Setup
     const aspect = width / height;
-    const frustumSize = 25;
+    const frustumSize = 26;
     this.camera = new THREE.OrthographicCamera(
       (-frustumSize * aspect) / 2,
       (frustumSize * aspect) / 2,
@@ -84,7 +90,7 @@ export class Scene3D {
     );
     this.updateCameraPosition();
 
-    // 3. WebGPU / WebGL2 Renderer 직접 인라인 초기화
+    // 3. WebGPU / WebGL2 Renderer 인라인 초기화
     let rendererMode = 'WebGL2 (안정 모드)';
     try {
       this.renderer = new THREE.WebGLRenderer({
@@ -114,22 +120,23 @@ export class Scene3D {
     if (badge) badge.textContent = `렌더러: ${rendererMode}`;
 
     // 4. Procedural Textures
-    this.textures.grate = createGrateFloorTexture();
+    this.textures.stone = createStoneFlagstoneTexture();
+    this.textures.wood = createWoodScaffoldTexture();
     this.textures.hazard = createHazardStripeTexture();
     this.textures.bulkhead = createBulkheadPanelTexture();
 
-    // 5. Lighting
-    const ambientLight = new THREE.AmbientLight(0x0d2233, 1.6);
+    // 5. Lighting: 토먼트풍 어두운 앰비언트 + 따뜻한 랜턴 하이라이트
+    const ambientLight = new THREE.AmbientLight(0x0e1b26, 1.8);
     this.scene.add(ambientLight);
 
-    const dirLight = new THREE.DirectionalLight(0x35e0e8, 1.0);
-    dirLight.position.set(25, 45, 25);
+    const dirLight = new THREE.DirectionalLight(0x35e0e8, 0.85);
+    dirLight.position.set(30, 50, 30);
     dirLight.castShadow = true;
     dirLight.shadow.mapSize.width = 2048;
     dirLight.shadow.mapSize.height = 2048;
     dirLight.shadow.camera.near = 0.5;
-    dirLight.shadow.camera.far = 150;
-    const d = 35;
+    dirLight.shadow.camera.far = 160;
+    const d = 40;
     dirLight.shadow.camera.left = -d;
     dirLight.shadow.camera.right = d;
     dirLight.shadow.camera.top = d;
@@ -137,15 +144,10 @@ export class Scene3D {
     dirLight.shadow.bias = -0.0005;
     this.scene.add(dirLight);
 
-    // 비상 경광등 (회전형 스팟/포인트 라이트)
-    this.emergencyStrobe = new THREE.PointLight(0xff5a4d, 0, 25);
-    this.emergencyStrobe.position.set(0, 8, 0);
-    this.scene.add(this.emergencyStrobe);
+    this.scene.add(this.dungeonGroup);
 
-    // 6. Build High-Detail Environment
-    this.buildDetailedFloor();
-    this.buildDetailedStations();
-    this.buildDetailedCorridors();
+    // 6. Build Procedural Map
+    this.buildProceduralDungeon(Date.now());
     this.buildDualParticleSystem();
     this.buildDetailedPlayer();
 
@@ -161,6 +163,161 @@ export class Scene3D {
     this.animate();
   }
 
+  buildProceduralDungeon(seed = Date.now()) {
+    // 기존 던전 메시 정리
+    while (this.dungeonGroup.children.length > 0) {
+      this.dungeonGroup.remove(this.dungeonGroup.children[0]);
+    }
+    this.siteMeshes.clear();
+    this.lanternLights = [];
+    this.animatedObjects = [];
+
+    // 디아블로식 던전 생성
+    this.dungeonData = this.dungeonGen.generate(seed);
+    const { rooms, corridors, spawnPoint, tileSize, gridWidth, gridHeight } = this.dungeonData;
+
+    // 플레이어 시작 위치 설정
+    this.playerPos.set(spawnPoint.x, 0.6, spawnPoint.z);
+    this.targetPos.copy(this.playerPos);
+
+    // 1. 방(Rooms) 생성 (석조 판석 및 목재 비계)
+    rooms.forEach((room) => {
+      const rx = (room.cx - gridWidth / 2) * tileSize;
+      const rz = (room.cz - gridHeight / 2) * tileSize;
+      const rw = room.w * tileSize;
+      const rh = room.h * tileSize;
+
+      const isWood = room.type === 'WOOD_SCAFFOLD';
+      const floorGeo = new THREE.BoxGeometry(rw, 0.35, rh);
+      const floorMat = new THREE.MeshStandardMaterial({
+        map: isWood ? this.textures.wood : this.textures.stone,
+        roughness: isWood ? 0.85 : 0.65,
+        metalness: isWood ? 0.1 : 0.4,
+      });
+      const floorMesh = new THREE.Mesh(floorGeo, floorMat);
+      floorMesh.position.set(rx, 0, rz);
+      floorMesh.receiveShadow = true;
+      floorMesh.castShadow = true;
+      this.dungeonGroup.add(floorMesh);
+
+      // 석조 벽 및 아치 프레임 (방 가장자리)
+      const wallMat = new THREE.MeshStandardMaterial({
+        map: this.textures.bulkhead,
+        roughness: 0.7,
+      });
+      // 방 모서리 기둥 4개
+      const pillarGeo = new THREE.BoxGeometry(0.8, 3.2, 0.8);
+      const corners = [
+        [rx - rw / 2 + 0.4, rz - rh / 2 + 0.4],
+        [rx + rw / 2 - 0.4, rz - rh / 2 + 0.4],
+        [rx - rw / 2 + 0.4, rz + rh / 2 - 0.4],
+        [rx + rw / 2 - 0.4, rz + rh / 2 - 0.4],
+      ];
+      corners.forEach(([px, pz]) => {
+        const pillar = new THREE.Mesh(pillarGeo, wallMat);
+        pillar.position.set(px, 1.6, pz);
+        pillar.castShadow = true;
+        pillar.receiveShadow = true;
+        this.dungeonGroup.add(pillar);
+      });
+
+      // 방마다 매달린 철창 랜턴 (토먼트 조명 스타일)
+      const lanternGeo = new THREE.CylinderGeometry(0.25, 0.35, 0.7, 8);
+      const lanternMat = new THREE.MeshStandardMaterial({
+        color: 0x111822,
+        metalness: 0.9,
+        emissive: 0x221104,
+      });
+      const lantern = new THREE.Mesh(lanternGeo, lanternMat);
+      lantern.position.set(rx - rw / 2 + 1.0, 2.6, rz - rh / 2 + 1.0);
+      lantern.castShadow = true;
+      this.dungeonGroup.add(lantern);
+
+      // 랜턴 내부 발광 코어
+      const coreGeo = new THREE.SphereGeometry(0.18, 8, 8);
+      const coreMat = new THREE.MeshBasicMaterial({ color: 0xffaa33 });
+      const coreMesh = new THREE.Mesh(coreGeo, coreMat);
+      coreMesh.position.set(rx - rw / 2 + 1.0, 2.6, rz - rh / 2 + 1.0);
+      this.dungeonGroup.add(coreMesh);
+
+      // 따뜻한 앰버/화염 포인트 라이트 (그림자 투사)
+      const pLight = new THREE.PointLight(0xff9922, 2.4, 13.0);
+      pLight.position.set(rx - rw / 2 + 1.0, 2.6, rz - rh / 2 + 1.0);
+      pLight.castShadow = true;
+      pLight.shadow.bias = -0.002;
+      this.dungeonGroup.add(pLight);
+      this.lanternLights.push({ light: pLight, baseIntensity: 2.4, x: pLight.position.x, z: pLight.position.z });
+
+      // 상호작용 구획 단말기 비석 배치
+      if (room.site) {
+        const site = room.site;
+        const shrineGeo = new THREE.CylinderGeometry(1.0, 1.2, 1.8, 8);
+        const shrineMat = new THREE.MeshStandardMaterial({
+          map: this.textures.hazard,
+          roughness: 0.4,
+          metalness: 0.6,
+        });
+        const shrine = new THREE.Mesh(shrineGeo, shrineMat);
+        shrine.position.set(rx, 0.9, rz);
+        shrine.castShadow = true;
+        shrine.receiveShadow = true;
+        shrine.userData = { siteId: site.id, site };
+        this.dungeonGroup.add(shrine);
+
+        // 상단 홀로그램 마커
+        const holoGeo = new THREE.OctahedronGeometry(0.5);
+        const holoMat = new THREE.MeshBasicMaterial({ color: 0x35e0e8, wireframe: true });
+        const holo = new THREE.Mesh(holoGeo, holoMat);
+        holo.position.set(rx, 2.4, rz);
+        this.dungeonGroup.add(holo);
+        this.animatedObjects.push({ obj: holo, rotSpeedY: 0.03, rotSpeedX: 0.015 });
+
+        this.siteMeshes.set(site.id, { mesh: shrine, pos: new THREE.Vector3(rx, 0.6, rz), site });
+      }
+    });
+
+    // 2. 통로 및 목재 비계 다리 (Corridors & Wooden Bridges over Abyss)
+    corridors.forEach((corr) => {
+      const p1 = new THREE.Vector3((corr.p1.x - gridWidth / 2) * tileSize, 0, (corr.p1.z - gridHeight / 2) * tileSize);
+      const p2 = new THREE.Vector3((corr.p2.x - gridWidth / 2) * tileSize, 0, (corr.p2.z - gridHeight / 2) * tileSize);
+      const dist = p1.distanceTo(p2);
+      if (dist < 0.2) return;
+
+      const bridgeGeo = new THREE.BoxGeometry(corr.width, 0.28, dist);
+      const bridgeMat = new THREE.MeshStandardMaterial({
+        map: corr.isWoodBridge ? this.textures.wood : this.textures.stone,
+        roughness: corr.isWoodBridge ? 0.9 : 0.6,
+      });
+      const bridge = new THREE.Mesh(bridgeGeo, bridgeMat);
+      const mid = new THREE.Vector3().addVectors(p1, p2).multiplyScalar(0.5);
+      bridge.position.set(mid.x, 0, mid.z);
+      bridge.rotation.y = -Math.atan2(p2.x - p1.x, p2.z - p1.z);
+      bridge.receiveShadow = true;
+      bridge.castShadow = true;
+      this.dungeonGroup.add(bridge);
+
+      // 다리 입구 석조 아치 포탈 (Gothic Stone Arch)
+      const archGeo = new THREE.TorusGeometry(1.4, 0.18, 6, 12, Math.PI);
+      const archMat = new THREE.MeshStandardMaterial({ color: 0x182430, metalness: 0.8 });
+      const arch = new THREE.Mesh(archGeo, archMat);
+      arch.position.set(p1.x, 0.05, p1.z);
+      arch.rotation.y = -Math.atan2(p2.x - p1.x, p2.z - p1.z) + Math.PI / 2;
+      arch.castShadow = true;
+      this.dungeonGroup.add(arch);
+    });
+
+    // 3. 몬스터 스폰 (방 위치에 맞추어 전투 매니저에 주입)
+    const allSpawns = [];
+    rooms.forEach((r) => {
+      r.monsters.forEach((m) => {
+        allSpawns.push(m);
+      });
+    });
+    if (this.combatManager) {
+      this.combatManager.spawnDungeonMonsters(allSpawns);
+    }
+  }
+
   updateCameraPosition() {
     const hDist = ISO_DISTANCE * Math.cos(ISO_PITCH);
     this.camera.position.set(
@@ -172,246 +329,24 @@ export class Scene3D {
     this.camera.updateProjectionMatrix();
   }
 
-  buildDetailedFloor() {
-    const floorGeo = new THREE.PlaneGeometry(85, 85, 32, 32);
-    const floorMat = new THREE.MeshStandardMaterial({
-      map: this.textures.grate,
-      roughness: 0.7,
-      metalness: 0.5,
-    });
-    const floor = new THREE.Mesh(floorGeo, floorMat);
-    floor.rotation.x = -Math.PI / 2;
-    floor.position.y = 0;
-    floor.receiveShadow = true;
-    this.scene.add(floor);
-
-    const grid = new THREE.GridHelper(85, 34, 0x14344c, 0x071b29);
-    grid.position.y = 0.02;
-    this.scene.add(grid);
-  }
-
-  buildDetailedStations() {
-    const SCALE = 12.0;
-
-    for (const site of SITES) {
-      const group = new THREE.Group();
-      const wx = site.x * SCALE;
-      const wz = site.y * SCALE;
-      group.position.set(wx, 0, wz);
-
-      let pLightColor = 0x35e0e8;
-
-      if (site.id === 'SITE_CORE') {
-        pLightColor = 0x00f0ff;
-        const bGeo = new THREE.CylinderGeometry(3.6, 4.0, 0.6, 16);
-        const bMat = new THREE.MeshStandardMaterial({ map: this.textures.hazard, roughness: 0.5 });
-        const base = new THREE.Mesh(bGeo, bMat);
-        base.position.y = 0.3;
-        base.receiveShadow = true;
-        group.add(base);
-
-        const rGeo = new THREE.CylinderGeometry(2.4, 2.4, 3.2, 16);
-        const rMat = new THREE.MeshStandardMaterial({
-          color: 0x0c2538,
-          emissive: 0x051a29,
-          roughness: 0.3,
-          metalness: 0.7,
-        });
-        const reactor = new THREE.Mesh(rGeo, rMat);
-        reactor.position.y = 2.0;
-        reactor.castShadow = true;
-        reactor.receiveShadow = true;
-        reactor.userData = { siteId: site.id, site };
-        group.add(reactor);
-
-        const ringGeo = new THREE.TorusGeometry(3.0, 0.08, 8, 32);
-        const ringMat = new THREE.MeshBasicMaterial({ color: 0x35e0e8, wireframe: true });
-        const holoRing = new THREE.Mesh(ringGeo, ringMat);
-        holoRing.position.y = 2.4;
-        holoRing.rotation.x = Math.PI / 3;
-        group.add(holoRing);
-        this.animatedObjects.push({ obj: holoRing, rotSpeedY: 0.025, rotSpeedX: 0.01 });
-
-        const coreSphereGeo = new THREE.SphereGeometry(0.8, 16, 16);
-        const coreSphereMat = new THREE.MeshBasicMaterial({ color: 0x00ffff });
-        const coreSphere = new THREE.Mesh(coreSphereGeo, coreSphereMat);
-        coreSphere.position.y = 2.2;
-        group.add(coreSphere);
-      } else if (site.id === 'SITE_VENT' || site.kind === 'vent') {
-        pLightColor = 0xffa53a;
-        const vGeo = new THREE.ConeGeometry(2.6, 3.8, 8);
-        const vMat = new THREE.MeshStandardMaterial({
-          color: 0x221108,
-          emissive: 0x3d1704,
-          roughness: 0.9,
-        });
-        const vent = new THREE.Mesh(vGeo, vMat);
-        vent.position.y = 1.9;
-        vent.castShadow = true;
-        vent.receiveShadow = true;
-        vent.userData = { siteId: site.id, site };
-        group.add(vent);
-
-        const lavaGeo = new THREE.RingGeometry(0.2, 1.0, 12);
-        const lavaMat = new THREE.MeshBasicMaterial({ color: 0xff7700, side: THREE.DoubleSide });
-        const lava = new THREE.Mesh(lavaGeo, lavaMat);
-        lava.rotation.x = -Math.PI / 2;
-        lava.position.y = 3.75;
-        group.add(lava);
-      } else if (site.id === 'SITE_SONAR' || site.kind === 'mast') {
-        pLightColor = 0x4ade9a;
-        const poleGeo = new THREE.CylinderGeometry(0.4, 0.6, 4.2, 8);
-        const poleMat = new THREE.MeshStandardMaterial({ color: 0x14344c, metalness: 0.8 });
-        const pole = new THREE.Mesh(poleGeo, poleMat);
-        pole.position.y = 2.1;
-        pole.castShadow = true;
-        group.add(pole);
-
-        const dishGeo = new THREE.CylinderGeometry(1.6, 0.2, 0.5, 12);
-        const dishMat = new THREE.MeshStandardMaterial({ color: 0x1a7f8a, metalness: 0.6 });
-        const dish = new THREE.Mesh(dishGeo, dishMat);
-        dish.position.y = 4.2;
-        dish.rotation.z = Math.PI / 6;
-        dish.castShadow = true;
-        dish.userData = { siteId: site.id, site };
-        group.add(dish);
-        this.animatedObjects.push({ obj: dish, rotSpeedY: 0.035 });
-      } else if (site.id === 'SITE_ARM' || site.kind === 'arm') {
-        pLightColor = 0xffa53a;
-        const bGeo = new THREE.BoxGeometry(2.4, 1.2, 2.4);
-        const bMat = new THREE.MeshStandardMaterial({ map: this.textures.hazard });
-        const bMesh = new THREE.Mesh(bGeo, bMat);
-        bMesh.position.y = 0.6;
-        group.add(bMesh);
-
-        const armGeo = new THREE.BoxGeometry(0.6, 3.4, 0.6);
-        const armMat = new THREE.MeshStandardMaterial({ color: 0x243e54, metalness: 0.7 });
-        const arm = new THREE.Mesh(armGeo, armMat);
-        arm.position.set(0.6, 2.4, 0.6);
-        arm.rotation.z = -Math.PI / 4;
-        arm.castShadow = true;
-        arm.userData = { siteId: site.id, site };
-        group.add(arm);
-      } else {
-        pLightColor = 0x35e0e8;
-        const modGeo = new THREE.BoxGeometry(4.4, 2.6, 4.4);
-        const modMat = new THREE.MeshStandardMaterial({
-          map: this.textures.bulkhead,
-          roughness: 0.5,
-          metalness: 0.5,
-        });
-        const moduleMesh = new THREE.Mesh(modGeo, modMat);
-        moduleMesh.position.y = 1.3;
-        moduleMesh.castShadow = true;
-        moduleMesh.receiveShadow = true;
-        moduleMesh.userData = { siteId: site.id, site };
-        group.add(moduleMesh);
-
-        const pipeGeo = new THREE.CylinderGeometry(0.2, 0.2, 4.0, 8);
-        const pipeMat = new THREE.MeshStandardMaterial({ color: 0x1a7f8a, metalness: 0.8 });
-        const pipe = new THREE.Mesh(pipeGeo, pipeMat);
-        pipe.rotation.z = Math.PI / 2;
-        pipe.position.y = 2.7;
-        group.add(pipe);
-      }
-
-      const pLight = new THREE.PointLight(pLightColor, 2.2, 11.0);
-      pLight.position.set(0, 3.2, 0);
-      group.add(pLight);
-
-      const ringGeo = new THREE.RingGeometry(3.0, 3.3, 24);
-      const ringMat = new THREE.MeshBasicMaterial({ color: pLightColor, side: THREE.DoubleSide, transparent: true, opacity: 0.65 });
-      const ring = new THREE.Mesh(ringGeo, ringMat);
-      ring.rotation.x = -Math.PI / 2;
-      ring.position.y = 0.06;
-      group.add(ring);
-      this.animatedObjects.push({ obj: ring, pulse: true });
-
-      this.scene.add(group);
-      const mainMesh = group.children.find((c) => c.userData?.siteId) || group.children[0];
-      this.siteMeshes.set(site.id, { group, mesh: mainMesh, ring, pLight, site });
-    }
-  }
-
-  buildDetailedCorridors() {
-    const SCALE = 12.0;
-    this.scene.add(this.corridorGroup);
-
-    for (const [aId, bId] of LINKS) {
-      const a = siteById(aId);
-      const b = siteById(bId);
-      if (!a || !b) continue;
-
-      const p1 = new THREE.Vector3(a.x * SCALE, 0, a.y * SCALE);
-      const p2 = new THREE.Vector3(b.x * SCALE, 0, b.y * SCALE);
-      const dist = p1.distanceTo(p2);
-
-      const pathGeo = new THREE.PlaneGeometry(1.8, dist);
-      const pathMat = new THREE.MeshStandardMaterial({
-        map: this.textures.grate,
-        roughness: 0.6,
-      });
-      const pathMesh = new THREE.Mesh(pathGeo, pathMat);
-      const mid = new THREE.Vector3().addVectors(p1, p2).multiplyScalar(0.5);
-      pathMesh.position.set(mid.x, 0.04, mid.z);
-      pathMesh.rotation.x = -Math.PI / 2;
-      pathMesh.rotation.z = -Math.atan2(p2.x - p1.x, p2.z - p1.z);
-      pathMesh.receiveShadow = true;
-      this.corridorGroup.add(pathMesh);
-
-      for (const t of [0.35, 0.65]) {
-        const ribPos = new THREE.Vector3().lerpVectors(p1, p2, t);
-        const archGeo = new THREE.TorusGeometry(1.3, 0.15, 6, 12, Math.PI);
-        const archMat = new THREE.MeshStandardMaterial({ color: 0x14344c, metalness: 0.8 });
-        const arch = new THREE.Mesh(archGeo, archMat);
-        arch.position.set(ribPos.x, 0.05, ribPos.z);
-        arch.rotation.y = -Math.atan2(p2.x - p1.x, p2.z - p1.z) + Math.PI / 2;
-        arch.castShadow = true;
-        this.corridorGroup.add(arch);
-      }
-    }
-  }
-
   buildDualParticleSystem() {
-    const count = 450;
+    const count = 400;
     const geo = new THREE.BufferGeometry();
     const positions = new Float32Array(count * 3);
     for (let i = 0; i < count * 3; i += 3) {
-      positions[i] = (Math.random() - 0.5) * 70;
+      positions[i] = (Math.random() - 0.5) * 80;
       positions[i + 1] = Math.random() * 20;
-      positions[i + 2] = (Math.random() - 0.5) * 70;
+      positions[i + 2] = (Math.random() - 0.5) * 80;
     }
     geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     const mat = new THREE.PointsMaterial({
       color: 0x35e0e8,
       size: 0.18,
       transparent: true,
-      opacity: 0.6,
+      opacity: 0.55,
     });
     this.particles = new THREE.Points(geo, mat);
     this.scene.add(this.particles);
-
-    const bCount = 120;
-    const bGeo = new THREE.BufferGeometry();
-    const bPos = new Float32Array(bCount * 3);
-    const ventSite = siteById('SITE_VENT');
-    const vx = (ventSite?.x || 1.2) * 12.0;
-    const vz = (ventSite?.y || -0.9) * 12.0;
-
-    for (let i = 0; i < bCount * 3; i += 3) {
-      bPos[i] = vx + (Math.random() - 0.5) * 4;
-      bPos[i + 1] = Math.random() * 16;
-      bPos[i + 2] = vz + (Math.random() - 0.5) * 4;
-    }
-    bGeo.setAttribute('position', new THREE.BufferAttribute(bPos, 3));
-    const bMat = new THREE.PointsMaterial({
-      color: 0xffa53a,
-      size: 0.28,
-      transparent: true,
-      opacity: 0.75,
-    });
-    this.bubbleParticles = new THREE.Points(bGeo, bMat);
-    this.scene.add(this.bubbleParticles);
   }
 
   buildDetailedPlayer() {
@@ -419,8 +354,8 @@ export class Scene3D {
 
     const torsoGeo = new THREE.BoxGeometry(0.7, 0.8, 0.45);
     const armorMat = new THREE.MeshStandardMaterial({
-      color: 0x14344c,
-      emissive: 0x0a1e2d,
+      color: 0x182c3f,
+      emissive: 0x071520,
       roughness: 0.3,
       metalness: 0.7,
     });
@@ -441,13 +376,8 @@ export class Scene3D {
     visor.position.set(0, 1.5, 0.22);
     group.add(visor);
 
-    const packGeo = new THREE.BoxGeometry(0.5, 0.6, 0.25);
-    const packMat = new THREE.MeshStandardMaterial({ color: 0x092233, metalness: 0.8 });
-    const pack = new THREE.Mesh(packGeo, packMat);
-    pack.position.set(0, 1.0, -0.32);
-    group.add(pack);
-
-    this.playerFlashlight = new THREE.SpotLight(0x35e0e8, 4.2, 22, Math.PI / 4.5, 0.35);
+    // 어깨 탐조등
+    this.playerFlashlight = new THREE.SpotLight(0x35e0e8, 4.0, 22, Math.PI / 4.5, 0.35);
     this.playerFlashlight.position.set(0.3, 1.5, 0.1);
     this.playerFlashlight.target.position.set(0, 0, 10);
     this.playerFlashlight.castShadow = true;
@@ -467,8 +397,14 @@ export class Scene3D {
     group.add(rightLeg);
     this.playerLimbs.rightLeg = rightLeg;
 
-    const selRingGeo = new THREE.RingGeometry(0.85, 1.0, 24);
-    const selRingMat = new THREE.MeshBasicMaterial({ color: 0x35e0e8, side: THREE.DoubleSide });
+    // 플레인스케이프 토먼트 정통 녹색 원형 선택 링 (Green Selection Circle)
+    const selRingGeo = new THREE.RingGeometry(0.85, 1.05, 32);
+    const selRingMat = new THREE.MeshBasicMaterial({
+      color: 0x4ade9a, // 선명한 에메랄드 그린
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.85,
+    });
     const selRing = new THREE.Mesh(selRingGeo, selRingMat);
     selRing.rotation.x = -Math.PI / 2;
     selRing.position.y = 0.06;
@@ -485,7 +421,7 @@ export class Scene3D {
     const height = this.container.clientHeight || 380;
     if (width === 0 || height === 0) return;
     const aspect = width / height;
-    const frustumSize = 25;
+    const frustumSize = 26;
 
     this.camera.left = (-frustumSize * aspect) / 2;
     this.camera.right = (frustumSize * aspect) / 2;
@@ -521,24 +457,23 @@ export class Scene3D {
       }
     }
 
-    // 2. 바닥 평면(y=0) 수학적 레이캐스트 교차점 계산 (클릭 이동 100% 즉시 반응)
+    // 2. 바닥 평면(y=0) 수학적 레이캐스트 교차점 계산 (클릭 이동)
     const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
     const hitPoint = new THREE.Vector3();
     const rayHit = this.raycaster.ray.intersectPlane(groundPlane, hitPoint);
 
     if (rayHit) {
-      // 맵 범위 제한 (-40 ~ +40)
-      const clampedX = Math.max(-38, Math.min(38, hitPoint.x));
-      const clampedZ = Math.max(-38, Math.min(38, hitPoint.z));
+      const clampedX = Math.max(-50, Math.min(50, hitPoint.x));
+      const clampedZ = Math.max(-50, Math.min(50, hitPoint.z));
       this.targetPos.set(clampedX, 0.6, clampedZ);
       this.isMoving = true;
 
-      // 클릭 지점 시각적 핑 (▼)
-      this.addFloatingText(clampedX, clampedZ, '▼', '#35e0e8');
+      // 클릭 지점 핑 연출
+      this.addFloatingText(clampedX, clampedZ, '▼', '#4ade9a');
 
       // 주변 스테이션 접근 감지
       for (const [sId, sObj] of this.siteMeshes) {
-        const d = hitPoint.distanceTo(sObj.group.position);
+        const d = hitPoint.distanceTo(sObj.pos);
         if (d < 3.8) {
           this.onSiteClick(sId);
           break;
@@ -548,10 +483,9 @@ export class Scene3D {
   }
 
   moveToSite(siteId) {
-    const SCALE = 12.0;
-    const site = siteById(siteId);
-    if (site) {
-      this.targetPos.set(site.x * SCALE, 0.6, site.y * SCALE);
+    const sObj = this.siteMeshes.get(siteId);
+    if (sObj) {
+      this.targetPos.set(sObj.pos.x, 0.6, sObj.pos.z);
       this.isMoving = true;
     }
   }
@@ -583,6 +517,15 @@ export class Scene3D {
         mMesh.userData = { monster: m };
         mGroup.add(mMesh);
 
+        // 몬스터 적색 선택 링 (Red Selection Ring)
+        const enemyRingGeo = new THREE.RingGeometry(0.8, 0.95, 24);
+        const enemyRingMat = new THREE.MeshBasicMaterial({ color: 0xff5a4d, side: THREE.DoubleSide });
+        const enemyRing = new THREE.Mesh(enemyRingGeo, enemyRingMat);
+        enemyRing.rotation.x = -Math.PI / 2;
+        enemyRing.position.y = 0.05;
+        mGroup.add(enemyRing);
+
+        // 체력바
         const hpBarGeo = new THREE.PlaneGeometry(1.3, 0.16);
         const hpBarMat = new THREE.MeshBasicMaterial({ color: 0xff5a4d, side: THREE.DoubleSide });
         const hpBar = new THREE.Mesh(hpBarGeo, hpBarMat);
@@ -655,10 +598,10 @@ export class Scene3D {
     this.lastFrameTime = now;
 
     let kx = 0, kz = 0;
-    if (this.keys['w'] || this.keys['arrowup']) { kx += 1; kz -= 1; }   // 화면 위쪽 (전방)
-    if (this.keys['s'] || this.keys['arrowdown']) { kx -= 1; kz += 1; } // 화면 아래쪽 (후방)
-    if (this.keys['a'] || this.keys['arrowleft']) { kx -= 1; kz -= 1; } // 화면 왼쪽
-    if (this.keys['d'] || this.keys['arrowright']) { kx += 1; kz += 1; } // 화면 오른쪽
+    if (this.keys['w'] || this.keys['arrowup']) { kx += 1; kz -= 1; }
+    if (this.keys['s'] || this.keys['arrowdown']) { kx -= 1; kz += 1; }
+    if (this.keys['a'] || this.keys['arrowleft']) { kx -= 1; kz -= 1; }
+    if (this.keys['d'] || this.keys['arrowright']) { kx += 1; kz += 1; }
 
     let walking = false;
 
@@ -698,20 +641,15 @@ export class Scene3D {
       }
     }
 
+    // 랜턴 불빛 미세 깜빡임 효과 (Flickering Flame / Lantern)
+    this.lanternLights.forEach((item, idx) => {
+      const flicker = Math.sin(now * 0.007 + idx * 1.5) * 0.3 + (Math.random() - 0.5) * 0.15;
+      item.light.intensity = item.baseIntensity + flicker;
+    });
+
     for (const item of this.animatedObjects) {
       if (item.rotSpeedY) item.obj.rotation.y += item.rotSpeedY;
       if (item.rotSpeedX) item.obj.rotation.x += item.rotSpeedX;
-      if (item.pulse) {
-        const s = 1.0 + Math.sin(now * 0.003) * 0.06;
-        item.obj.scale.set(s, s, s);
-      }
-    }
-
-    if (this.emergencyStrobe) {
-      const angle = (now * 0.004) % (Math.PI * 2);
-      this.emergencyStrobe.position.x = Math.cos(angle) * 14;
-      this.emergencyStrobe.position.z = Math.sin(angle) * 14;
-      this.emergencyStrobe.intensity = 1.5 + Math.sin(now * 0.01) * 0.8;
     }
 
     this.updateCameraPosition();
@@ -723,14 +661,6 @@ export class Scene3D {
         if (positions[i] < 0) positions[i] = 20;
       }
       this.particles.geometry.attributes.position.needsUpdate = true;
-    }
-    if (this.bubbleParticles) {
-      const bPositions = this.bubbleParticles.geometry.attributes.position.array;
-      for (let i = 1; i < bPositions.length; i += 3) {
-        bPositions[i] += 0.04;
-        if (bPositions[i] > 16) bPositions[i] = 0.5;
-      }
-      this.bubbleParticles.geometry.attributes.position.needsUpdate = true;
     }
 
     this.combatManager.updateMonsters(this.playerPos.x, this.playerPos.z, now, delta);

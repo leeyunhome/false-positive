@@ -114,6 +114,13 @@ export class CombatManager {
     this.monsters = [];
   }
 
+  spawnDungeonMonsters(spawnList = []) {
+    this.clearMonsters();
+    spawnList.forEach(item => {
+      this.spawnMonster(item.type, item.x, item.z);
+    });
+  }
+
   playerAttackMonster(monster, now = performance.now()) {
     if (monster.hp <= 0) return null;
     if (now - this.lastPlayerAttackTime < this.playerAttackCooldown) return null;

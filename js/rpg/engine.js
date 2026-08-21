@@ -127,22 +127,15 @@ export class RpgEngine {
     this.dialogueEngine.startDialogue(diag);
   }
 
-  setIncident(inc, evidenceCallback) {
+  setIncident(inc, evidenceCallback, shiftIdx = 0) {
     this.currentIncident = inc;
     this.activeEvidenceCallback = evidenceCallback;
 
-    // 경보에 맞추어 몬스터/이상체 스폰
-    this.combatManager.clearMonsters();
-    if (inc && inc.truth && inc.truth.isRealThreat) {
-      // 위협인 경우 해당 증거 구획 주변에 몬스터 스폰
-      const primarySite = inc.evidence[0]?.site || 'SITE_CORE';
-      const site = siteById(primarySite);
-      if (site) {
-        const SCALE = 12.0;
-        const type = inc.channel === 'sonar' ? 'PRESSURE_PHANTOM' : (inc.channel === 'hull' ? 'DRONE_ROGUE' : 'ABYSSAL_CRAWLER');
-        this.combatManager.spawnMonster(type, site.x * SCALE + 2.5, site.y * SCALE + 2.0, primarySite);
-        this.onLog(`[경보 경계] ${site.label} 구획에 미확인 이상체 신호 감지! 접근 시 무장 필요.`, '⚠');
-      }
+    // 매 경보/교대마다 디아블로식 무작위 절차적 던전 맵 재생성
+    if (this.scene3d && inc) {
+      const seed = (inc.id.charCodeAt(inc.id.length - 1) * 7919) + Date.now();
+      this.scene3d.buildProceduralDungeon(seed);
+      this.onLog(`[절차적 던전 생성] ${inc.id} 구획 석조 비계 던전 맵 재구성됨 (Seed: ${seed % 10000})`, '◈');
     }
   }
 

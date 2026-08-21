@@ -734,3 +734,117 @@ body {
   color: var(--red);
   border: 1px solid var(--red);
 }
+
+/* ══════════════════════════════════════════════════════════
+   Planescape: Torment Authentic Bottom HUD Styles
+   ══════════════════════════════════════════════════════════ */
+
+.torment-bottom-hud {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 68px;
+  background: linear-gradient(180deg, rgba(8, 16, 24, 0.92) 0%, rgba(3, 8, 14, 0.98) 100%);
+  border-top: 2px solid #23455e;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(53, 224, 232, 0.2);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 16px;
+  z-index: 25;
+}
+
+.hud-dials-left, .hud-dials-right {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.hud-dial-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #183c54 0%, #081a26 100%);
+  border: 2px solid #366788;
+  color: #fff;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.7), inset 0 0 8px rgba(53, 224, 232, 0.2);
+  transition: all 0.2s ease;
+}
+
+.hud-dial-btn:hover {
+  transform: scale(1.1);
+  border-color: var(--cyan);
+  box-shadow: 0 0 14px rgba(53, 224, 232, 0.6);
+}
+
+.hud-party-bar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.hud-portrait-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(10, 26, 38, 0.8);
+  border: 2px solid #244b66;
+  border-radius: 4px;
+  padding: 4px 10px;
+  transition: all 0.2s ease;
+}
+
+.hud-portrait-card--active {
+  border-color: #4ade9a;
+  box-shadow: 0 0 10px rgba(74, 222, 154, 0.3);
+}
+
+.hud-portrait-card img {
+  width: 36px;
+  height: 36px;
+  border-radius: 3px;
+  border: 1px solid var(--cyan-dim);
+  background: #02070e;
+}
+
+.hud-portrait-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.hud-pname {
+  font: 700 11.5px var(--mono);
+  color: #cfe6f0;
+}
+
+.hud-hp-bar-wrap {
+  width: 80px;
+  height: 6px;
+  background: #05101a;
+  border: 1px solid #14344c;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.hud-hp-bar-wrap i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #4ade9a, #10b981);
+  transition: width 0.3s;
+}
+
+.hud-status-badge {
+  font: 600 10px var(--mono);
+  color: var(--cyan);
+}
+
+.rpg-overlay-controls {
+  bottom: 74px !important;
+}
