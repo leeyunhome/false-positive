@@ -38,6 +38,11 @@ function show(id) {
   document.querySelectorAll('.screen').forEach((s) => s.classList.remove('screen--active'));
   $(id).classList.add('screen--active');
   window.scrollTo({ top: 0, behavior: 'smooth' });
+  if (id === 'scrIncident') {
+    setTimeout(() => {
+      if (S.rpg?.scene3d) S.rpg.scene3d.onResize();
+    }, 50);
+  }
 }
 
 function log(text, mark = '') {

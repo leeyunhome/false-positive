@@ -1,5 +1,5 @@
 /* ══════════════════════════════════════════════════════════
-   THALASSA-9 RPG: 3D 쿼터뷰 (Isometric) 심해 기지 엔진 v2.0
+   THALASSA-9 RPG: 3D 쿼터뷰 (Isometric) 심해 기지 엔진 v2.1
    Planescape: Torment식 고딕-인더스트리얼 디테일 & OpenMMO 3D 렌더링
    ══════════════════════════════════════════════════════════ */
 
@@ -63,8 +63,8 @@ export class Scene3D {
   }
 
   init() {
-    const width = this.container.clientWidth || 800;
-    const height = this.container.clientHeight || 500;
+    const width = (this.container && this.container.clientWidth) || 800;
+    const height = (this.container && this.container.clientHeight) || 380;
 
     // 1. Scene & Deep Sea Fog
     this.scene = new THREE.Scene();
@@ -84,8 +84,34 @@ export class Scene3D {
     );
     this.updateCameraPosition();
 
-    // 3. WebGPU 자동 감지 및 WebGL2 폴백 렌더러 초기화
-    this.initUniversalRenderer(width, height);
+    // 3. WebGPU / WebGL2 Renderer 직접 인라인 초기화
+    let rendererMode = 'WebGL2 (안정 모드)';
+    try {
+      this.renderer = new THREE.WebGLRenderer({
+        antialias: true,
+        alpha: false,
+        powerPreference: 'high-performance',
+      });
+      if (typeof navigator !== 'undefined' && navigator.gpu) {
+        rendererMode = 'WebGPU (하드웨어 가속 지원)';
+      }
+    } catch (e) {
+      console.warn('WebGL 가속 실패, 기본 렌더러 폴백:', e);
+      this.renderer = new THREE.WebGLRenderer({ antialias: false, alpha: false });
+    }
+
+    this.renderer.setSize(width, height);
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+    if (this.container) {
+      this.container.innerHTML = '';
+      this.container.appendChild(this.renderer.domElement);
+    }
+
+    const badge = document.getElementById('rpgRendererBadge');
+    if (badge) badge.textContent = `렌더러: ${rendererMode}`;
 
     // 4. Procedural Textures
     this.textures.grate = createGrateFloorTexture();
@@ -125,7 +151,9 @@ export class Scene3D {
 
     // 7. Event Listeners
     window.addEventListener('resize', () => this.onResize());
-    this.renderer.domElement.addEventListener('pointerdown', (e) => this.onPointerDown(e));
+    if (this.renderer && this.renderer.domElement) {
+      this.renderer.domElement.addEventListener('pointerdown', (e) => this.onPointerDown(e));
+    }
     window.addEventListener('keydown', (e) => (this.keys[e.key.toLowerCase()] = true));
     window.addEventListener('keyup', (e) => (this.keys[e.key.toLowerCase()] = false));
 
@@ -145,7 +173,6 @@ export class Scene3D {
   }
 
   buildDetailedFloor() {
-    // 메탈 그레이팅 해저 바닥
     const floorGeo = new THREE.PlaneGeometry(85, 85, 32, 32);
     const floorMat = new THREE.MeshStandardMaterial({
       map: this.textures.grate,
@@ -158,7 +185,6 @@ export class Scene3D {
     floor.receiveShadow = true;
     this.scene.add(floor);
 
-    // 배수 채널 및 프레임 테두리
     const grid = new THREE.GridHelper(85, 34, 0x14344c, 0x071b29);
     grid.position.y = 0.02;
     this.scene.add(grid);
@@ -175,10 +201,8 @@ export class Scene3D {
 
       let pLightColor = 0x35e0e8;
 
-      // 1. 관제 코어 (SITE_CORE) - 3단 원자로 + 회전 데이터 링
       if (site.id === 'SITE_CORE') {
         pLightColor = 0x00f0ff;
-        // 1단 바닥 기단
         const bGeo = new THREE.CylinderGeometry(3.6, 4.0, 0.6, 16);
         const bMat = new THREE.MeshStandardMaterial({ map: this.textures.hazard, roughness: 0.5 });
         const base = new THREE.Mesh(bGeo, bMat);
@@ -186,7 +210,6 @@ export class Scene3D {
         base.receiveShadow = true;
         group.add(base);
 
-        // 2단 반응로 본체
         const rGeo = new THREE.CylinderGeometry(2.4, 2.4, 3.2, 16);
         const rMat = new THREE.MeshStandardMaterial({
           color: 0x0c2538,
@@ -201,7 +224,6 @@ export class Scene3D {
         reactor.userData = { siteId: site.id, site };
         group.add(reactor);
 
-        // 회전 홀로그램 링
         const ringGeo = new THREE.TorusGeometry(3.0, 0.08, 8, 32);
         const ringMat = new THREE.MeshBasicMaterial({ color: 0x35e0e8, wireframe: true });
         const holoRing = new THREE.Mesh(ringGeo, ringMat);
@@ -210,22 +232,18 @@ export class Scene3D {
         group.add(holoRing);
         this.animatedObjects.push({ obj: holoRing, rotSpeedY: 0.025, rotSpeedX: 0.01 });
 
-        // 발광 코어 구체
         const coreSphereGeo = new THREE.SphereGeometry(0.8, 16, 16);
         const coreSphereMat = new THREE.MeshBasicMaterial({ color: 0x00ffff });
         const coreSphere = new THREE.Mesh(coreSphereGeo, coreSphereMat);
         coreSphere.position.y = 2.2;
         group.add(coreSphere);
-      }
-      // 2. 열수공 지대 (SITE_VENT) - 화산 굴뚝 + 마그마 크러스트
-      else if (site.id === 'SITE_VENT' || site.kind === 'vent') {
+      } else if (site.id === 'SITE_VENT' || site.kind === 'vent') {
         pLightColor = 0xffa53a;
         const vGeo = new THREE.ConeGeometry(2.6, 3.8, 8);
         const vMat = new THREE.MeshStandardMaterial({
           color: 0x221108,
           emissive: 0x3d1704,
           roughness: 0.9,
-          bumpScale: 0.4,
         });
         const vent = new THREE.Mesh(vGeo, vMat);
         vent.position.y = 1.9;
@@ -234,16 +252,13 @@ export class Scene3D {
         vent.userData = { siteId: site.id, site };
         group.add(vent);
 
-        // 분화구 상단 발광 링
         const lavaGeo = new THREE.RingGeometry(0.2, 1.0, 12);
         const lavaMat = new THREE.MeshBasicMaterial({ color: 0xff7700, side: THREE.DoubleSide });
         const lava = new THREE.Mesh(lavaGeo, lavaMat);
         lava.rotation.x = -Math.PI / 2;
         lava.position.y = 3.75;
         group.add(lava);
-      }
-      // 3. 소나 어레이 (SITE_SONAR) - 레이더 마스트 + 회전 디쉬
-      else if (site.id === 'SITE_SONAR' || site.kind === 'mast') {
+      } else if (site.id === 'SITE_SONAR' || site.kind === 'mast') {
         pLightColor = 0x4ade9a;
         const poleGeo = new THREE.CylinderGeometry(0.4, 0.6, 4.2, 8);
         const poleMat = new THREE.MeshStandardMaterial({ color: 0x14344c, metalness: 0.8 });
@@ -252,7 +267,6 @@ export class Scene3D {
         pole.castShadow = true;
         group.add(pole);
 
-        // 레이더 디쉬
         const dishGeo = new THREE.CylinderGeometry(1.6, 0.2, 0.5, 12);
         const dishMat = new THREE.MeshStandardMaterial({ color: 0x1a7f8a, metalness: 0.6 });
         const dish = new THREE.Mesh(dishGeo, dishMat);
@@ -262,9 +276,7 @@ export class Scene3D {
         dish.userData = { siteId: site.id, site };
         group.add(dish);
         this.animatedObjects.push({ obj: dish, rotSpeedY: 0.035 });
-      }
-      // 4. 채굴 아암 (SITE_ARM) - 유압 실린더 및 굴착 집게
-      else if (site.id === 'SITE_ARM' || site.kind === 'arm') {
+      } else if (site.id === 'SITE_ARM' || site.kind === 'arm') {
         pLightColor = 0xffa53a;
         const bGeo = new THREE.BoxGeometry(2.4, 1.2, 2.4);
         const bMat = new THREE.MeshStandardMaterial({ map: this.textures.hazard });
@@ -272,7 +284,6 @@ export class Scene3D {
         bMesh.position.y = 0.6;
         group.add(bMesh);
 
-        // 관절 아암
         const armGeo = new THREE.BoxGeometry(0.6, 3.4, 0.6);
         const armMat = new THREE.MeshStandardMaterial({ color: 0x243e54, metalness: 0.7 });
         const arm = new THREE.Mesh(armGeo, armMat);
@@ -281,9 +292,7 @@ export class Scene3D {
         arm.castShadow = true;
         arm.userData = { siteId: site.id, site };
         group.add(arm);
-      }
-      // 5. 일반 연구/거주/생명유지 모듈
-      else {
+      } else {
         pLightColor = 0x35e0e8;
         const modGeo = new THREE.BoxGeometry(4.4, 2.6, 4.4);
         const modMat = new THREE.MeshStandardMaterial({
@@ -298,7 +307,6 @@ export class Scene3D {
         moduleMesh.userData = { siteId: site.id, site };
         group.add(moduleMesh);
 
-        // 지붕 배관 & 벤트
         const pipeGeo = new THREE.CylinderGeometry(0.2, 0.2, 4.0, 8);
         const pipeMat = new THREE.MeshStandardMaterial({ color: 0x1a7f8a, metalness: 0.8 });
         const pipe = new THREE.Mesh(pipeGeo, pipeMat);
@@ -307,12 +315,10 @@ export class Scene3D {
         group.add(pipe);
       }
 
-      // 포인트 라이트
       const pLight = new THREE.PointLight(pLightColor, 2.2, 11.0);
       pLight.position.set(0, 3.2, 0);
       group.add(pLight);
 
-      // 발밑 펄스 홀로그램 서클
       const ringGeo = new THREE.RingGeometry(3.0, 3.3, 24);
       const ringMat = new THREE.MeshBasicMaterial({ color: pLightColor, side: THREE.DoubleSide, transparent: true, opacity: 0.65 });
       const ring = new THREE.Mesh(ringGeo, ringMat);
@@ -340,7 +346,6 @@ export class Scene3D {
       const p2 = new THREE.Vector3(b.x * SCALE, 0, b.y * SCALE);
       const dist = p1.distanceTo(p2);
 
-      // 통로 바닥
       const pathGeo = new THREE.PlaneGeometry(1.8, dist);
       const pathMat = new THREE.MeshStandardMaterial({
         map: this.textures.grate,
@@ -354,7 +359,6 @@ export class Scene3D {
       pathMesh.receiveShadow = true;
       this.corridorGroup.add(pathMesh);
 
-      // 아치형 강화 격벽 리브 (중간 2개 배치)
       for (const t of [0.35, 0.65]) {
         const ribPos = new THREE.Vector3().lerpVectors(p1, p2, t);
         const archGeo = new THREE.TorusGeometry(1.3, 0.15, 6, 12, Math.PI);
@@ -369,7 +373,6 @@ export class Scene3D {
   }
 
   buildDualParticleSystem() {
-    // 1. 심해 부유물 (Marine Snow)
     const count = 450;
     const geo = new THREE.BufferGeometry();
     const positions = new Float32Array(count * 3);
@@ -388,7 +391,6 @@ export class Scene3D {
     this.particles = new THREE.Points(geo, mat);
     this.scene.add(this.particles);
 
-    // 2. 열수공 상승 기포 파티클 (Thermal Bubbles)
     const bCount = 120;
     const bGeo = new THREE.BufferGeometry();
     const bPos = new Float32Array(bCount * 3);
@@ -415,7 +417,6 @@ export class Scene3D {
   buildDetailedPlayer() {
     const group = new THREE.Group();
 
-    // 1. 토르소 (중장갑 흉갑)
     const torsoGeo = new THREE.BoxGeometry(0.7, 0.8, 0.45);
     const armorMat = new THREE.MeshStandardMaterial({
       color: 0x14344c,
@@ -429,7 +430,6 @@ export class Scene3D {
     group.add(torso);
     this.playerLimbs.torso = torso;
 
-    // 2. 헬멧 & 바이저
     const headGeo = new THREE.SphereGeometry(0.28, 12, 12);
     const head = new THREE.Mesh(headGeo, armorMat);
     head.position.y = 1.5;
@@ -441,14 +441,12 @@ export class Scene3D {
     visor.position.set(0, 1.5, 0.22);
     group.add(visor);
 
-    // 3. 백팩 산소 재호흡기
     const packGeo = new THREE.BoxGeometry(0.5, 0.6, 0.25);
     const packMat = new THREE.MeshStandardMaterial({ color: 0x092233, metalness: 0.8 });
     const pack = new THREE.Mesh(packGeo, packMat);
     pack.position.set(0, 1.0, -0.32);
     group.add(pack);
 
-    // 4. 어깨 탐조등 (Halogen Spotlight) - 그림자 투사
     this.playerFlashlight = new THREE.SpotLight(0x35e0e8, 4.2, 22, Math.PI / 4.5, 0.35);
     this.playerFlashlight.position.set(0.3, 1.5, 0.1);
     this.playerFlashlight.target.position.set(0, 0, 10);
@@ -456,7 +454,6 @@ export class Scene3D {
     group.add(this.playerFlashlight);
     group.add(this.playerFlashlight.target);
 
-    // 5. 다리 관절
     const legGeo = new THREE.CylinderGeometry(0.12, 0.12, 0.6, 8);
     const leftLeg = new THREE.Mesh(legGeo, armorMat);
     leftLeg.position.set(-0.2, 0.35, 0);
@@ -470,7 +467,6 @@ export class Scene3D {
     group.add(rightLeg);
     this.playerLimbs.rightLeg = rightLeg;
 
-    // 발밑 타겟 링
     const selRingGeo = new THREE.RingGeometry(0.85, 1.0, 24);
     const selRingMat = new THREE.MeshBasicMaterial({ color: 0x35e0e8, side: THREE.DoubleSide });
     const selRing = new THREE.Mesh(selRingGeo, selRingMat);
@@ -484,9 +480,10 @@ export class Scene3D {
   }
 
   onResize() {
-    if (!this.renderer || !this.camera) return;
-    const width = this.container.clientWidth;
-    const height = this.container.clientHeight;
+    if (!this.renderer || !this.camera || !this.container) return;
+    const width = this.container.clientWidth || 800;
+    const height = this.container.clientHeight || 380;
+    if (width === 0 || height === 0) return;
     const aspect = width / height;
     const frustumSize = 25;
 
@@ -499,13 +496,13 @@ export class Scene3D {
   }
 
   onPointerDown(event) {
+    if (!this.renderer || !this.renderer.domElement) return;
     const rect = this.renderer.domElement.getBoundingClientRect();
     this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
     this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
     this.raycaster.setFromCamera(this.mouse, this.camera);
 
-    // 1. 몬스터 클릭
     const monsterMeshesList = Array.from(this.monsterMeshes.values()).map((m) => m.mesh);
     const monsterHits = this.raycaster.intersectObjects(monsterMeshesList);
     if (monsterHits.length > 0) {
@@ -523,7 +520,6 @@ export class Scene3D {
       }
     }
 
-    // 2. 바닥 및 스테이션 클릭
     const stationMeshesList = Array.from(this.siteMeshes.values()).map((s) => s.mesh);
     const hits = this.raycaster.intersectObjects([...stationMeshesList, this.scene.children[0]]);
 
@@ -557,13 +553,10 @@ export class Scene3D {
         let mGeo;
 
         if (m.id === 'DRONE_ROGUE') {
-          // 폭주 용접 드론 (구형 본체 + 4개 노즐)
           mGeo = new THREE.SphereGeometry(0.7, 12, 12);
         } else if (m.id === 'ABYSSAL_CRAWLER') {
-          // 열수공 갑각체 (다각체 껍질)
           mGeo = new THREE.ConeGeometry(0.8, 1.2, 6);
         } else {
-          // 초음파 잔류체 (도데카헤드론)
           mGeo = new THREE.DodecahedronGeometry(0.8);
         }
 
@@ -579,7 +572,6 @@ export class Scene3D {
         mMesh.userData = { monster: m };
         mGroup.add(mMesh);
 
-        // 체력바 빌보드
         const hpBarGeo = new THREE.PlaneGeometry(1.3, 0.16);
         const hpBarMat = new THREE.MeshBasicMaterial({ color: 0xff5a4d, side: THREE.DoubleSide });
         const hpBar = new THREE.Mesh(hpBarGeo, hpBarMat);
@@ -603,6 +595,7 @@ export class Scene3D {
   }
 
   addFloatingText(x, z, text, color = '#35e0e8', isPlayer = false) {
+    if (!this.container) return;
     const el = document.createElement('div');
     el.className = 'rpg-float-text';
     el.style.color = color;
@@ -621,6 +614,7 @@ export class Scene3D {
   }
 
   updateFloatingTexts(now) {
+    if (!this.container || !this.camera) return;
     for (let i = this.floatingTexts.length - 1; i >= 0; i--) {
       const ft = this.floatingTexts[i];
       const elapsed = now - ft.startTime;
@@ -649,7 +643,6 @@ export class Scene3D {
     const delta = now - this.lastFrameTime;
     this.lastFrameTime = now;
 
-    // 1. 키보드 등각 투영(Isometric) 화면 일치 이동 처리
     let kx = 0, kz = 0;
     if (this.keys['w'] || this.keys['arrowup']) { kx += 1; kz -= 1; }   // 화면 위쪽 (전방)
     if (this.keys['s'] || this.keys['arrowdown']) { kx -= 1; kz += 1; } // 화면 아래쪽 (후방)
@@ -677,7 +670,6 @@ export class Scene3D {
       }
     }
 
-    // 플레이어 애니메이션 (걸음 사이클 및 시선)
     if (this.playerMesh) {
       this.playerMesh.position.copy(this.playerPos);
 
@@ -695,7 +687,6 @@ export class Scene3D {
       }
     }
 
-    // 2. 오브젝트 애니메이션 (반응로 링 회전, 펄스 등)
     for (const item of this.animatedObjects) {
       if (item.rotSpeedY) item.obj.rotation.y += item.rotSpeedY;
       if (item.rotSpeedX) item.obj.rotation.x += item.rotSpeedX;
@@ -705,7 +696,6 @@ export class Scene3D {
       }
     }
 
-    // 3. 비상 스트로브 라이트 회전 (경광등)
     if (this.emergencyStrobe) {
       const angle = (now * 0.004) % (Math.PI * 2);
       this.emergencyStrobe.position.x = Math.cos(angle) * 14;
@@ -713,10 +703,8 @@ export class Scene3D {
       this.emergencyStrobe.intensity = 1.5 + Math.sin(now * 0.01) * 0.8;
     }
 
-    // 4. 카메라 추적
     this.updateCameraPosition();
 
-    // 5. 파티클 애니메이션
     if (this.particles) {
       const positions = this.particles.geometry.attributes.position.array;
       for (let i = 1; i < positions.length; i += 3) {
@@ -734,13 +722,12 @@ export class Scene3D {
       this.bubbleParticles.geometry.attributes.position.needsUpdate = true;
     }
 
-    // 6. 몬스터 AI & 동기화
     this.combatManager.updateMonsters(this.playerPos.x, this.playerPos.z, now, delta);
     this.syncMonsters();
-
-    // 7. 플로팅 텍스트 업데이트
     this.updateFloatingTexts(now);
 
-    this.renderer.render(this.scene, this.camera);
+    if (this.renderer && this.scene && this.camera) {
+      this.renderer.render(this.scene, this.camera);
+    }
   }
 }
