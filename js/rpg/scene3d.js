@@ -72,6 +72,8 @@ export class Scene3D {
     this.isMoving = false;
     this.moveSpeed = 0.14;
     this.walkCycle = 0;
+    this.attackAnim = 0; // 타격 베기 애니메이션 타이머
+    this.currentTargetMonster = null; // 현재 교전 중인 타겟 몬스터
 
     this.keys = {};
     this.lastFrameTime = performance.now();
@@ -612,9 +614,14 @@ export class Scene3D {
       const clickedMesh = monsterHits[0].object;
       const monsterData = clickedMesh.userData?.monster || clickedMesh.parent?.userData?.monster;
       if (monsterData && monsterData.hp > 0) {
+        this.currentTargetMonster = monsterData;
+        if (this.playerMesh) {
+          this.playerMesh.lookAt(monsterData.x, 0, monsterData.z);
+        }
         const dist = this.playerPos.distanceTo(new THREE.Vector3(monsterData.x, 0, monsterData.z));
-        if (dist <= this.character.equipment.weapon.range + 1.2) {
-          this.combatManager.playerAttackMonster(monsterData);
+        if (dist <= this.character.equipment.weapon.range + 1.4) {
+          this.isMoving = false;
+          this.triggerPlayerAttack(monsterData);
         } else {
           this.targetPos.set(monsterData.x, 0, monsterData.z);
           this.isMoving = true;
@@ -642,6 +649,20 @@ export class Scene3D {
           break;
         }
       }
+    }
+  }
+
+  triggerPlayerAttack(monster) {
+    if (!monster || monster.hp <= 0) return;
+    this.currentTargetMonster = monster;
+    if (this.playerMesh) {
+      this.playerMesh.lookAt(monster.x, 0, monster.z);
+    }
+    this.attackAnim = 1.0; // 타격 모션 시작
+    const res = this.combatManager.playerAttackMonster(monster);
+    if (res && res.hit) {
+      // 타격 불꽃 파티클
+      this.addFloatingText(monster.x, monster.z, '✦', '#00ffff');
     }
   }
 
@@ -807,7 +828,38 @@ export class Scene3D {
         if (this.playerLimbs.leftLeg) this.playerLimbs.leftLeg.rotation.x = 0;
         if (this.playerLimbs.rightLeg) this.playerLimbs.rightLeg.rotation.x = 0;
         if (this.playerLimbs.leftArm) this.playerLimbs.leftArm.rotation.x = 0;
-        if (this.playerLimbs.rightArm) this.playerLimbs.rightArm.rotation.x = 0;
+
+        // 정지 상태일 때 타겟 몬스터가 있으면 항상 몬스터를 바라보도록 유지
+        if (this.currentTargetMonster && this.currentTargetMonster.hp > 0) {
+          this.playerMesh.lookAt(this.currentTargetMonster.x, 0, this.currentTargetMonster.z);
+          
+          // 사거리 내에 있고 쿨타임이 돌았으면 자동 타격
+          const distToMon = this.playerPos.distanceTo(new THREE.Vector3(this.currentTargetMonster.x, 0, this.currentTargetMonster.z));
+          if (distToMon <= this.character.equipment.weapon.range + 1.4 && this.attackAnim <= 0) {
+            this.triggerPlayerAttack(this.currentTargetMonster);
+          }
+        }
+
+        // 공격 타격 베기 애니메이션 (오른팔 무기 맹렬한 스윙)
+        if (this.attackAnim > 0) {
+          this.attackAnim -= delta * 0.006;
+          const swingAngle = Math.sin(this.attackAnim * Math.PI) * 1.6;
+          if (this.playerLimbs.rightArm) {
+            this.playerLimbs.rightArm.rotation.x = -swingAngle;
+            this.playerLimbs.rightArm.rotation.z = -swingAngle * 0.4;
+          }
+          if (this.playerLimbs.torso) {
+            this.playerLimbs.torso.rotation.y = Math.sin(this.attackAnim * Math.PI) * 0.25;
+          }
+        } else {
+          if (this.playerLimbs.rightArm) {
+            this.playerLimbs.rightArm.rotation.x = 0;
+            this.playerLimbs.rightArm.rotation.z = 0;
+          }
+          if (this.playerLimbs.torso) {
+            this.playerLimbs.torso.rotation.y = 0;
+          }
+        }
       }
     }
 
