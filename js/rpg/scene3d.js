@@ -503,11 +503,12 @@ export class Scene3D {
 
     this.raycaster.setFromCamera(this.mouse, this.camera);
 
+    // 1. 몬스터 클릭 타겟팅
     const monsterMeshesList = Array.from(this.monsterMeshes.values()).map((m) => m.mesh);
-    const monsterHits = this.raycaster.intersectObjects(monsterMeshesList);
+    const monsterHits = this.raycaster.intersectObjects(monsterMeshesList, true);
     if (monsterHits.length > 0) {
-      const clickedMonsterMesh = monsterHits[0].object;
-      const monsterData = clickedMonsterMesh.userData.monster;
+      const clickedMesh = monsterHits[0].object;
+      const monsterData = clickedMesh.userData?.monster || clickedMesh.parent?.userData?.monster;
       if (monsterData && monsterData.hp > 0) {
         const dist = this.playerPos.distanceTo(new THREE.Vector3(monsterData.x, 0, monsterData.z));
         if (dist <= this.character.equipment.weapon.range + 1.2) {
@@ -520,18 +521,28 @@ export class Scene3D {
       }
     }
 
-    const stationMeshesList = Array.from(this.siteMeshes.values()).map((s) => s.mesh);
-    const hits = this.raycaster.intersectObjects([...stationMeshesList, this.scene.children[0]]);
+    // 2. 바닥 평면(y=0) 수학적 레이캐스트 교차점 계산 (클릭 이동 100% 즉시 반응)
+    const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+    const hitPoint = new THREE.Vector3();
+    const rayHit = this.raycaster.ray.intersectPlane(groundPlane, hitPoint);
 
-    if (hits.length > 0) {
-      const hit = hits[0];
-      const siteId = hit.object.userData?.siteId;
-
-      this.targetPos.set(hit.point.x, 0.6, hit.point.z);
+    if (rayHit) {
+      // 맵 범위 제한 (-40 ~ +40)
+      const clampedX = Math.max(-38, Math.min(38, hitPoint.x));
+      const clampedZ = Math.max(-38, Math.min(38, hitPoint.z));
+      this.targetPos.set(clampedX, 0.6, clampedZ);
       this.isMoving = true;
 
-      if (siteId) {
-        this.onSiteClick(siteId);
+      // 클릭 지점 시각적 핑 (▼)
+      this.addFloatingText(clampedX, clampedZ, '▼', '#35e0e8');
+
+      // 주변 스테이션 접근 감지
+      for (const [sId, sObj] of this.siteMeshes) {
+        const d = hitPoint.distanceTo(sObj.group.position);
+        if (d < 3.8) {
+          this.onSiteClick(sId);
+          break;
+        }
       }
     }
   }
