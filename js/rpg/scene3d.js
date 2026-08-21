@@ -1,6 +1,8 @@
 /* ══════════════════════════════════════════════════════════
-   THALASSA-9 RPG: 토먼트 고딕 석조 & 디아블로식 절차적 3D 엔진 v3.0
-   Planescape: Torment 정통 비주얼 (석조 바닥, 비계 나무다리, 철창 랜턴, 녹색 선택 링)
+   THALASSA-9 RPG: 8등신 영웅 비례 & 디아블로4/토먼트 3D 엔진 v3.5
+   - 마우스 휠 줌인/줌아웃 (Orthographic Frustum 조절)
+   - 8등신 (8-Head Realistic Heroic Proportion) 정밀 인체/외골격 모델링
+   - 어깨 각진 갑주, 플라즈마 블레이드, 척추 레일, 전술 헬멧, 자연스러운 보행 애니메이션
    ══════════════════════════════════════════════════════════ */
 
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
@@ -13,7 +15,6 @@ import {
 } from './textures.js';
 import { DungeonGenerator } from './dungeonGenerator.js';
 
-// OpenMMO 표준 등각 투영(Isometric) 각도
 export const ISO_PITCH = Math.atan(1 / Math.sqrt(2)); // ~35.264도
 export const ISO_YAW = -Math.PI / 4;                  // -45도
 export const ISO_DISTANCE = 38;
@@ -31,6 +32,9 @@ export class Scene3D {
     this.raycaster = new THREE.Raycaster();
     this.mouse = new THREE.Vector2();
 
+    // 줌 관련 (마우스 휠)
+    this.frustumSize = 22.0;
+
     this.dungeonGen = new DungeonGenerator({ minRooms: 6, maxRooms: 8 });
     this.dungeonData = null;
     this.dungeonGroup = new THREE.Group();
@@ -45,19 +49,26 @@ export class Scene3D {
 
     // 씬 오브젝트
     this.playerMesh = null;
-    this.playerLimbs = { leftLeg: null, rightLeg: null, torso: null, head: null };
+    this.playerLimbs = {
+      leftLeg: null,
+      rightLeg: null,
+      leftArm: null,
+      rightArm: null,
+      torso: null,
+      head: null,
+      weapon: null,
+    };
     this.playerFlashlight = null;
     this.siteMeshes = new Map();
     this.monsterMeshes = new Map();
     this.lanternLights = [];
     this.particles = null;
-    this.bubbleParticles = null;
     this.floatingTexts = [];
     this.animatedObjects = [];
 
     // 플레이어 좌표 & 이동
-    this.playerPos = new THREE.Vector3(0, 0.6, 0);
-    this.targetPos = new THREE.Vector3(0, 0.6, 0);
+    this.playerPos = new THREE.Vector3(0, 0, 0);
+    this.targetPos = new THREE.Vector3(0, 0, 0);
     this.isMoving = false;
     this.moveSpeed = 0.14;
     this.walkCycle = 0;
@@ -79,12 +90,11 @@ export class Scene3D {
 
     // 2. Camera: True Isometric Setup
     const aspect = width / height;
-    const frustumSize = 26;
     this.camera = new THREE.OrthographicCamera(
-      (-frustumSize * aspect) / 2,
-      (frustumSize * aspect) / 2,
-      frustumSize / 2,
-      -frustumSize / 2,
+      (-this.frustumSize * aspect) / 2,
+      (this.frustumSize * aspect) / 2,
+      this.frustumSize / 2,
+      -this.frustumSize / 2,
       0.1,
       500
     );
@@ -125,7 +135,7 @@ export class Scene3D {
     this.textures.hazard = createHazardStripeTexture();
     this.textures.bulkhead = createBulkheadPanelTexture();
 
-    // 5. Lighting: 토먼트풍 어두운 앰비언트 + 따뜻한 랜턴 하이라이트
+    // 5. Lighting
     const ambientLight = new THREE.AmbientLight(0x0e1b26, 1.8);
     this.scene.add(ambientLight);
 
@@ -146,16 +156,35 @@ export class Scene3D {
 
     this.scene.add(this.dungeonGroup);
 
-    // 6. Build Procedural Map
+    // 6. Build Procedural Map & 8-Head Player
     this.buildProceduralDungeon(Date.now());
     this.buildDualParticleSystem();
-    this.buildDetailedPlayer();
+    this.build8HeadHeroPlayer();
 
     // 7. Event Listeners
     window.addEventListener('resize', () => this.onResize());
     if (this.renderer && this.renderer.domElement) {
       this.renderer.domElement.addEventListener('pointerdown', (e) => this.onPointerDown(e));
     }
+
+    // 마우스 휠 줌인 / 줌아웃 (디아블로4 / 토먼트 시점 조절)
+    if (this.container) {
+      this.container.addEventListener(
+        'wheel',
+        (e) => {
+          e.preventDefault();
+          const zoomSpeed = 0.08;
+          if (e.deltaY > 0) {
+            this.frustumSize = Math.min(44.0, this.frustumSize * (1 + zoomSpeed));
+          } else {
+            this.frustumSize = Math.max(10.0, this.frustumSize * (1 - zoomSpeed));
+          }
+          this.onResize();
+        },
+        { passive: false }
+      );
+    }
+
     window.addEventListener('keydown', (e) => (this.keys[e.key.toLowerCase()] = true));
     window.addEventListener('keyup', (e) => (this.keys[e.key.toLowerCase()] = false));
 
@@ -164,7 +193,6 @@ export class Scene3D {
   }
 
   buildProceduralDungeon(seed = Date.now()) {
-    // 기존 던전 메시 정리
     while (this.dungeonGroup.children.length > 0) {
       this.dungeonGroup.remove(this.dungeonGroup.children[0]);
     }
@@ -172,15 +200,13 @@ export class Scene3D {
     this.lanternLights = [];
     this.animatedObjects = [];
 
-    // 디아블로식 던전 생성
     this.dungeonData = this.dungeonGen.generate(seed);
     const { rooms, corridors, spawnPoint, tileSize, gridWidth, gridHeight } = this.dungeonData;
 
-    // 플레이어 시작 위치 설정
-    this.playerPos.set(spawnPoint.x, 0.6, spawnPoint.z);
+    this.playerPos.set(spawnPoint.x, 0, spawnPoint.z);
     this.targetPos.copy(this.playerPos);
 
-    // 1. 방(Rooms) 생성 (석조 판석 및 목재 비계)
+    // 1. 방 생성
     rooms.forEach((room) => {
       const rx = (room.cx - gridWidth / 2) * tileSize;
       const rz = (room.cz - gridHeight / 2) * tileSize;
@@ -200,12 +226,10 @@ export class Scene3D {
       floorMesh.castShadow = true;
       this.dungeonGroup.add(floorMesh);
 
-      // 석조 벽 및 아치 프레임 (방 가장자리)
       const wallMat = new THREE.MeshStandardMaterial({
         map: this.textures.bulkhead,
         roughness: 0.7,
       });
-      // 방 모서리 기둥 4개
       const pillarGeo = new THREE.BoxGeometry(0.8, 3.2, 0.8);
       const corners = [
         [rx - rw / 2 + 0.4, rz - rh / 2 + 0.4],
@@ -221,7 +245,7 @@ export class Scene3D {
         this.dungeonGroup.add(pillar);
       });
 
-      // 방마다 매달린 철창 랜턴 (토먼트 조명 스타일)
+      // 랜턴
       const lanternGeo = new THREE.CylinderGeometry(0.25, 0.35, 0.7, 8);
       const lanternMat = new THREE.MeshStandardMaterial({
         color: 0x111822,
@@ -233,14 +257,12 @@ export class Scene3D {
       lantern.castShadow = true;
       this.dungeonGroup.add(lantern);
 
-      // 랜턴 내부 발광 코어
       const coreGeo = new THREE.SphereGeometry(0.18, 8, 8);
       const coreMat = new THREE.MeshBasicMaterial({ color: 0xffaa33 });
       const coreMesh = new THREE.Mesh(coreGeo, coreMat);
       coreMesh.position.set(rx - rw / 2 + 1.0, 2.6, rz - rh / 2 + 1.0);
       this.dungeonGroup.add(coreMesh);
 
-      // 따뜻한 앰버/화염 포인트 라이트 (그림자 투사)
       const pLight = new THREE.PointLight(0xff9922, 2.4, 13.0);
       pLight.position.set(rx - rw / 2 + 1.0, 2.6, rz - rh / 2 + 1.0);
       pLight.castShadow = true;
@@ -248,7 +270,6 @@ export class Scene3D {
       this.dungeonGroup.add(pLight);
       this.lanternLights.push({ light: pLight, baseIntensity: 2.4, x: pLight.position.x, z: pLight.position.z });
 
-      // 상호작용 구획 단말기 비석 배치
       if (room.site) {
         const site = room.site;
         const shrineGeo = new THREE.CylinderGeometry(1.0, 1.2, 1.8, 8);
@@ -264,7 +285,6 @@ export class Scene3D {
         shrine.userData = { siteId: site.id, site };
         this.dungeonGroup.add(shrine);
 
-        // 상단 홀로그램 마커
         const holoGeo = new THREE.OctahedronGeometry(0.5);
         const holoMat = new THREE.MeshBasicMaterial({ color: 0x35e0e8, wireframe: true });
         const holo = new THREE.Mesh(holoGeo, holoMat);
@@ -272,11 +292,11 @@ export class Scene3D {
         this.dungeonGroup.add(holo);
         this.animatedObjects.push({ obj: holo, rotSpeedY: 0.03, rotSpeedX: 0.015 });
 
-        this.siteMeshes.set(site.id, { mesh: shrine, pos: new THREE.Vector3(rx, 0.6, rz), site });
+        this.siteMeshes.set(site.id, { mesh: shrine, pos: new THREE.Vector3(rx, 0, rz), site });
       }
     });
 
-    // 2. 통로 및 목재 비계 다리 (Corridors & Wooden Bridges over Abyss)
+    // 2. 통로 및 목재 비계 다리
     corridors.forEach((corr) => {
       const p1 = new THREE.Vector3((corr.p1.x - gridWidth / 2) * tileSize, 0, (corr.p1.z - gridHeight / 2) * tileSize);
       const p2 = new THREE.Vector3((corr.p2.x - gridWidth / 2) * tileSize, 0, (corr.p2.z - gridHeight / 2) * tileSize);
@@ -296,7 +316,6 @@ export class Scene3D {
       bridge.castShadow = true;
       this.dungeonGroup.add(bridge);
 
-      // 다리 입구 석조 아치 포탈 (Gothic Stone Arch)
       const archGeo = new THREE.TorusGeometry(1.4, 0.18, 6, 12, Math.PI);
       const archMat = new THREE.MeshStandardMaterial({ color: 0x182430, metalness: 0.8 });
       const arch = new THREE.Mesh(archGeo, archMat);
@@ -306,7 +325,6 @@ export class Scene3D {
       this.dungeonGroup.add(arch);
     });
 
-    // 3. 몬스터 스폰 (방 위치에 맞추어 전투 매니저에 주입)
     const allSpawns = [];
     rooms.forEach((r) => {
       r.monsters.forEach((m) => {
@@ -325,7 +343,7 @@ export class Scene3D {
       this.playerPos.y + ISO_DISTANCE * Math.sin(ISO_PITCH),
       this.playerPos.z + hDist * Math.cos(ISO_YAW)
     );
-    this.camera.lookAt(this.playerPos.x, this.playerPos.y, this.playerPos.z);
+    this.camera.lookAt(this.playerPos.x, this.playerPos.y + 0.8, this.playerPos.z);
     this.camera.updateProjectionMatrix();
   }
 
@@ -349,70 +367,220 @@ export class Scene3D {
     this.scene.add(this.particles);
   }
 
-  buildDetailedPlayer() {
-    const group = new THREE.Group();
+  /* ══════════════════════════════════════════════════════════
+     8등신 (8-Head Realistic Heroic Proportion) 캐릭터 모델링
+     총 신장 약 2.4 유닛 (1헤드 = 0.30 유닛)
+     디아블로4 중장갑 엑소슈트 + 토먼트 고딕 실루엣
+     ══════════════════════════════════════════════════════════ */
+  build8HeadHeroPlayer() {
+    const root = new THREE.Group();
 
-    const torsoGeo = new THREE.BoxGeometry(0.7, 0.8, 0.45);
+    // 머티리얼 정의 (건메탈 강철, 시안 발광, 브론즈 악센트)
     const armorMat = new THREE.MeshStandardMaterial({
-      color: 0x182c3f,
-      emissive: 0x071520,
-      roughness: 0.3,
-      metalness: 0.7,
+      color: 0x182430,
+      roughness: 0.35,
+      metalness: 0.75,
     });
-    const torso = new THREE.Mesh(torsoGeo, armorMat);
-    torso.position.y = 0.95;
-    torso.castShadow = true;
-    group.add(torso);
-    this.playerLimbs.torso = torso;
+    const jointMat = new THREE.MeshStandardMaterial({
+      color: 0x091017,
+      roughness: 0.6,
+      metalness: 0.4,
+    });
+    const goldTrimMat = new THREE.MeshStandardMaterial({
+      color: 0x9c7a38,
+      roughness: 0.3,
+      metalness: 0.85,
+    });
+    const glowCyanMat = new THREE.MeshBasicMaterial({ color: 0x35e0e8 });
 
-    const headGeo = new THREE.SphereGeometry(0.28, 12, 12);
-    const head = new THREE.Mesh(headGeo, armorMat);
-    head.position.y = 1.5;
-    group.add(head);
+    // ── 1. 머리 & 택티컬 헬멧 (Y: 2.10 ~ 2.40, Head unit 8) ──
+    const headGroup = new THREE.Group();
+    headGroup.position.set(0, 2.18, 0);
 
-    const visorGeo = new THREE.BoxGeometry(0.32, 0.16, 0.2);
-    const visorMat = new THREE.MeshBasicMaterial({ color: 0x35e0e8 });
-    const visor = new THREE.Mesh(visorGeo, visorMat);
-    visor.position.set(0, 1.5, 0.22);
-    group.add(visor);
+    const helmetGeo = new THREE.SphereGeometry(0.16, 14, 14);
+    const helmet = new THREE.Mesh(helmetGeo, armorMat);
+    helmet.scale.set(1.0, 1.15, 1.1);
+    headGroup.add(helmet);
 
-    // 어깨 탐조등
-    this.playerFlashlight = new THREE.SpotLight(0x35e0e8, 4.0, 22, Math.PI / 4.5, 0.35);
-    this.playerFlashlight.position.set(0.3, 1.5, 0.1);
-    this.playerFlashlight.target.position.set(0, 0, 10);
+    // 각진 턱 보호대
+    const jawGeo = new THREE.BoxGeometry(0.16, 0.12, 0.18);
+    const jaw = new THREE.Mesh(jawGeo, armorMat);
+    jaw.position.set(0, -0.06, 0.04);
+    headGroup.add(jaw);
+
+    // 광학 바이저 (빛나는 시안색 글래스)
+    const visorGeo = new THREE.BoxGeometry(0.20, 0.07, 0.12);
+    const visor = new THREE.Mesh(visorGeo, glowCyanMat);
+    visor.position.set(0, 0.02, 0.12);
+    headGroup.add(visor);
+
+    // 호흡 필터 튜브
+    const rebreatherGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.16, 8);
+    const rebreather = new THREE.Mesh(rebreatherGeo, jointMat);
+    rebreather.rotation.z = Math.PI / 2;
+    rebreather.position.set(0, -0.08, 0.12);
+    headGroup.add(rebreather);
+
+    root.add(headGroup);
+    this.playerLimbs.head = headGroup;
+
+    // ── 2. 상체 흉갑 (Thorax / Breastplate, Head unit 6~7) ──
+    const torsoGroup = new THREE.Group();
+    torsoGroup.position.set(0, 1.55, 0);
+
+    // V자형 역삼각형 흉갑
+    const chestGeo = new THREE.BoxGeometry(0.56, 0.44, 0.34);
+    const chest = new THREE.Mesh(chestGeo, armorMat);
+    chest.castShadow = true;
+    torsoGroup.add(chest);
+
+    // 흉부 골드 트림 플레이트
+    const chestPlateGeo = new THREE.BoxGeometry(0.38, 0.28, 0.06);
+    const chestPlate = new THREE.Mesh(chestPlateGeo, goldTrimMat);
+    chestPlate.position.set(0, 0.04, 0.16);
+    torsoGroup.add(chestPlate);
+
+    // 척추 외골격 파이프라인 (등 뒤 레일)
+    const spineGeo = new THREE.CylinderGeometry(0.05, 0.05, 0.6, 8);
+    const spine = new THREE.Mesh(spineGeo, jointMat);
+    spine.position.set(0, 0, -0.18);
+    torsoGroup.add(spine);
+
+    // 복부 관절 (Abdomen)
+    const absGeo = new THREE.BoxGeometry(0.40, 0.26, 0.28);
+    const absMesh = new THREE.Mesh(absGeo, jointMat);
+    absMesh.position.set(0, -0.32, 0);
+    torsoGroup.add(absMesh);
+
+    // 전술 벨트 & 홀스터
+    const beltGeo = new THREE.BoxGeometry(0.46, 0.08, 0.32);
+    const belt = new THREE.Mesh(beltGeo, goldTrimMat);
+    belt.position.set(0, -0.44, 0);
+    torsoGroup.add(belt);
+
+    // 어깨 탐조등 (우측 어깨 장착)
+    this.playerFlashlight = new THREE.SpotLight(0x35e0e8, 4.5, 24, Math.PI / 4.5, 0.3);
+    this.playerFlashlight.position.set(0.32, 0.25, 0.1);
+    this.playerFlashlight.target.position.set(0, -1.0, 12);
     this.playerFlashlight.castShadow = true;
-    group.add(this.playerFlashlight);
-    group.add(this.playerFlashlight.target);
+    torsoGroup.add(this.playerFlashlight);
+    torsoGroup.add(this.playerFlashlight.target);
 
-    const legGeo = new THREE.CylinderGeometry(0.12, 0.12, 0.6, 8);
-    const leftLeg = new THREE.Mesh(legGeo, armorMat);
-    leftLeg.position.set(-0.2, 0.35, 0);
-    leftLeg.castShadow = true;
-    group.add(leftLeg);
-    this.playerLimbs.leftLeg = leftLeg;
+    root.add(torsoGroup);
+    this.playerLimbs.torso = torsoGroup;
 
-    const rightLeg = new THREE.Mesh(legGeo, armorMat);
-    rightLeg.position.set(0.2, 0.35, 0);
-    rightLeg.castShadow = true;
-    group.add(rightLeg);
-    this.playerLimbs.rightLeg = rightLeg;
+    // ── 3. 팔 & 무기 (Arms, Gauntlets & Plasma Blade) ──
+    const makeArm = (isLeft) => {
+      const armGroup = new THREE.Group();
+      const sign = isLeft ? -1 : 1;
+      armGroup.position.set(sign * 0.36, 1.72, 0);
 
-    // 플레인스케이프 토먼트 정통 녹색 원형 선택 링 (Green Selection Circle)
-    const selRingGeo = new THREE.RingGeometry(0.85, 1.05, 32);
+      // 디아블로식 각진 어깨 갑주 (Puldron)
+      const pauldronGeo = new THREE.BoxGeometry(0.24, 0.22, 0.28);
+      const pauldron = new THREE.Mesh(pauldronGeo, goldTrimMat);
+      pauldron.position.set(sign * 0.04, -0.02, 0);
+      pauldron.rotation.z = sign * 0.15;
+      pauldron.castShadow = true;
+      armGroup.add(pauldron);
+
+      // 상완 (Bicep)
+      const bicepGeo = new THREE.CylinderGeometry(0.07, 0.065, 0.30, 8);
+      const bicep = new THREE.Mesh(bicepGeo, armorMat);
+      bicep.position.set(0, -0.20, 0);
+      bicep.castShadow = true;
+      armGroup.add(bicep);
+
+      // 전완 및 건틀릿 (Forearm & Heavy Gauntlet)
+      const gauntletGeo = new THREE.BoxGeometry(0.14, 0.32, 0.16);
+      const gauntlet = new THREE.Mesh(gauntletGeo, armorMat);
+      gauntlet.position.set(0, -0.48, 0.03);
+      gauntlet.castShadow = true;
+      armGroup.add(gauntlet);
+
+      // 우측 손에 장착된 플라즈마 절단기 (Arc Plasma Cutter)
+      if (!isLeft) {
+        const weaponGroup = new THREE.Group();
+        weaponGroup.position.set(0, -0.66, 0.1);
+
+        const handleGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.28, 8);
+        const handle = new THREE.Mesh(handleGeo, goldTrimMat);
+        handle.rotation.x = Math.PI / 2;
+        weaponGroup.add(handle);
+
+        const bladeGeo = new THREE.ConeGeometry(0.06, 0.65, 8);
+        const bladeMat = new THREE.MeshBasicMaterial({ color: 0x35e0e8 });
+        const blade = new THREE.Mesh(bladeGeo, bladeMat);
+        blade.position.set(0, 0, 0.4);
+        blade.rotation.x = Math.PI / 2;
+        weaponGroup.add(blade);
+
+        armGroup.add(weaponGroup);
+        this.playerLimbs.weapon = weaponGroup;
+      }
+
+      root.add(armGroup);
+      return armGroup;
+    };
+
+    this.playerLimbs.leftArm = makeArm(true);
+    this.playerLimbs.rightArm = makeArm(false);
+
+    // ── 4. 롱레그 하체 (8-Head Long Legs & Greaves, Head unit 1~4) ──
+    const makeLeg = (isLeft) => {
+      const legGroup = new THREE.Group();
+      const sign = isLeft ? -1 : 1;
+      legGroup.position.set(sign * 0.16, 1.05, 0);
+
+      // 대퇴부 허벅지 (Thigh) - 롱레그 비율
+      const thighGeo = new THREE.CylinderGeometry(0.10, 0.08, 0.46, 8);
+      const thigh = new THREE.Mesh(thighGeo, armorMat);
+      thigh.position.set(0, -0.22, 0);
+      thigh.castShadow = true;
+      legGroup.add(thigh);
+
+      // 무릎 보호대 (Knee Cop)
+      const kneeGeo = new THREE.BoxGeometry(0.14, 0.12, 0.14);
+      const knee = new THREE.Mesh(kneeGeo, goldTrimMat);
+      knee.position.set(0, -0.46, 0.05);
+      legGroup.add(knee);
+
+      // 정강이받이 및 장갑 부츠 (Greave & Sabaton)
+      const shinGeo = new THREE.CylinderGeometry(0.085, 0.075, 0.48, 8);
+      const shin = new THREE.Mesh(shinGeo, armorMat);
+      shin.position.set(0, -0.72, 0);
+      shin.castShadow = true;
+      legGroup.add(shin);
+
+      // 중장갑 전투 부츠
+      const bootGeo = new THREE.BoxGeometry(0.14, 0.12, 0.26);
+      const boot = new THREE.Mesh(bootGeo, jointMat);
+      boot.position.set(0, -0.98, 0.06);
+      boot.castShadow = true;
+      legGroup.add(boot);
+
+      root.add(legGroup);
+      return legGroup;
+    };
+
+    this.playerLimbs.leftLeg = makeLeg(true);
+    this.playerLimbs.rightLeg = makeLeg(false);
+
+    // ── 5. 토먼트 정통 녹색 원형 선택 링 (Green Selection Circle) ──
+    const selRingGeo = new THREE.RingGeometry(0.95, 1.15, 32);
     const selRingMat = new THREE.MeshBasicMaterial({
-      color: 0x4ade9a, // 선명한 에메랄드 그린
+      color: 0x4ade9a,
       side: THREE.DoubleSide,
       transparent: true,
-      opacity: 0.85,
+      opacity: 0.9,
     });
     const selRing = new THREE.Mesh(selRingGeo, selRingMat);
     selRing.rotation.x = -Math.PI / 2;
     selRing.position.y = 0.06;
-    group.add(selRing);
+    root.add(selRing);
 
-    group.position.copy(this.playerPos);
-    this.scene.add(group);
-    this.playerMesh = group;
+    root.position.copy(this.playerPos);
+    this.scene.add(root);
+    this.playerMesh = root;
   }
 
   onResize() {
@@ -421,12 +589,11 @@ export class Scene3D {
     const height = this.container.clientHeight || 380;
     if (width === 0 || height === 0) return;
     const aspect = width / height;
-    const frustumSize = 26;
 
-    this.camera.left = (-frustumSize * aspect) / 2;
-    this.camera.right = (frustumSize * aspect) / 2;
-    this.camera.top = frustumSize / 2;
-    this.camera.bottom = -frustumSize / 2;
+    this.camera.left = (-this.frustumSize * aspect) / 2;
+    this.camera.right = (this.frustumSize * aspect) / 2;
+    this.camera.top = this.frustumSize / 2;
+    this.camera.bottom = -this.frustumSize / 2;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(width, height);
   }
@@ -439,7 +606,6 @@ export class Scene3D {
 
     this.raycaster.setFromCamera(this.mouse, this.camera);
 
-    // 1. 몬스터 클릭 타겟팅
     const monsterMeshesList = Array.from(this.monsterMeshes.values()).map((m) => m.mesh);
     const monsterHits = this.raycaster.intersectObjects(monsterMeshesList, true);
     if (monsterHits.length > 0) {
@@ -450,14 +616,13 @@ export class Scene3D {
         if (dist <= this.character.equipment.weapon.range + 1.2) {
           this.combatManager.playerAttackMonster(monsterData);
         } else {
-          this.targetPos.set(monsterData.x, 0.6, monsterData.z);
+          this.targetPos.set(monsterData.x, 0, monsterData.z);
           this.isMoving = true;
         }
         return;
       }
     }
 
-    // 2. 바닥 평면(y=0) 수학적 레이캐스트 교차점 계산 (클릭 이동)
     const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
     const hitPoint = new THREE.Vector3();
     const rayHit = this.raycaster.ray.intersectPlane(groundPlane, hitPoint);
@@ -465,13 +630,11 @@ export class Scene3D {
     if (rayHit) {
       const clampedX = Math.max(-50, Math.min(50, hitPoint.x));
       const clampedZ = Math.max(-50, Math.min(50, hitPoint.z));
-      this.targetPos.set(clampedX, 0.6, clampedZ);
+      this.targetPos.set(clampedX, 0, clampedZ);
       this.isMoving = true;
 
-      // 클릭 지점 핑 연출
       this.addFloatingText(clampedX, clampedZ, '▼', '#4ade9a');
 
-      // 주변 스테이션 접근 감지
       for (const [sId, sObj] of this.siteMeshes) {
         const d = hitPoint.distanceTo(sObj.pos);
         if (d < 3.8) {
@@ -485,7 +648,7 @@ export class Scene3D {
   moveToSite(siteId) {
     const sObj = this.siteMeshes.get(siteId);
     if (sObj) {
-      this.targetPos.set(sObj.pos.x, 0.6, sObj.pos.z);
+      this.targetPos.set(sObj.pos.x, 0, sObj.pos.z);
       this.isMoving = true;
     }
   }
@@ -517,7 +680,6 @@ export class Scene3D {
         mMesh.userData = { monster: m };
         mGroup.add(mMesh);
 
-        // 몬스터 적색 선택 링 (Red Selection Ring)
         const enemyRingGeo = new THREE.RingGeometry(0.8, 0.95, 24);
         const enemyRingMat = new THREE.MeshBasicMaterial({ color: 0xff5a4d, side: THREE.DoubleSide });
         const enemyRing = new THREE.Mesh(enemyRingGeo, enemyRingMat);
@@ -525,7 +687,6 @@ export class Scene3D {
         enemyRing.position.y = 0.05;
         mGroup.add(enemyRing);
 
-        // 체력바
         const hpBarGeo = new THREE.PlaneGeometry(1.3, 0.16);
         const hpBarMat = new THREE.MeshBasicMaterial({ color: 0xff5a4d, side: THREE.DoubleSide });
         const hpBar = new THREE.Mesh(hpBarGeo, hpBarMat);
@@ -628,20 +789,28 @@ export class Scene3D {
       this.playerMesh.position.copy(this.playerPos);
 
       if (walking) {
-        this.walkCycle += 0.2;
-        if (this.playerLimbs.leftLeg) this.playerLimbs.leftLeg.rotation.x = Math.sin(this.walkCycle) * 0.45;
-        if (this.playerLimbs.rightLeg) this.playerLimbs.rightLeg.rotation.x = -Math.sin(this.walkCycle) * 0.45;
-        if (this.playerLimbs.torso) this.playerLimbs.torso.position.y = 0.95 + Math.abs(Math.sin(this.walkCycle)) * 0.06;
+        this.walkCycle += 0.22;
+        // 다리 보행 사이클 (Leg swing & stride)
+        if (this.playerLimbs.leftLeg) this.playerLimbs.leftLeg.rotation.x = Math.sin(this.walkCycle) * 0.52;
+        if (this.playerLimbs.rightLeg) this.playerLimbs.rightLeg.rotation.x = -Math.sin(this.walkCycle) * 0.52;
 
-        const lookTarget = this.isMoving ? this.targetPos : new THREE.Vector3(this.playerPos.x + kx, 0.6, this.playerPos.z + kz);
-        this.playerMesh.lookAt(lookTarget.x, 0.6, lookTarget.z);
+        // 팔 반대 방향 스윙 (Arm counter-swing)
+        if (this.playerLimbs.leftArm) this.playerLimbs.leftArm.rotation.x = -Math.sin(this.walkCycle) * 0.45;
+        if (this.playerLimbs.rightArm) this.playerLimbs.rightArm.rotation.x = Math.sin(this.walkCycle) * 0.45;
+
+        // 상체 미세 상하 진동 (Bobbing)
+        if (this.playerLimbs.torso) this.playerLimbs.torso.position.y = 1.55 + Math.abs(Math.sin(this.walkCycle)) * 0.04;
+
+        const lookTarget = this.isMoving ? this.targetPos : new THREE.Vector3(this.playerPos.x + kx, 0, this.playerPos.z + kz);
+        this.playerMesh.lookAt(lookTarget.x, 0, lookTarget.z);
       } else {
         if (this.playerLimbs.leftLeg) this.playerLimbs.leftLeg.rotation.x = 0;
         if (this.playerLimbs.rightLeg) this.playerLimbs.rightLeg.rotation.x = 0;
+        if (this.playerLimbs.leftArm) this.playerLimbs.leftArm.rotation.x = 0;
+        if (this.playerLimbs.rightArm) this.playerLimbs.rightArm.rotation.x = 0;
       }
     }
 
-    // 랜턴 불빛 미세 깜빡임 효과 (Flickering Flame / Lantern)
     this.lanternLights.forEach((item, idx) => {
       const flicker = Math.sin(now * 0.007 + idx * 1.5) * 0.3 + (Math.random() - 0.5) * 0.15;
       item.light.intensity = item.baseIntensity + flicker;
