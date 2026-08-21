@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>오탐 — FALSE POSITIVE : THALASSA-9</title>
-  <meta name="description" content="수심 3,200m 해저 기지의 야간 당직 관제사. 온보드 AI NEREUS가 조언한다. NEREUS는 가끔 틀린다." />
+  <meta name="description" content="수심 3,200m 해저 기지의 야간 당직 관제사. 온보드 AI NEREUS가 조언한다. Planescape: Torment 스타일 액션 RPG와 3D 쿼터뷰 탐색." />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌊</text></svg>" />
   <link rel="stylesheet" href="css/styles.css" />
 </head>
@@ -18,10 +18,11 @@
       <span class="ident__mark">◈</span>
       <div>
         <h1 class="ident__name">THALASSA-9</h1>
-        <p class="ident__sub">심도 3,200 m · 동태평양 해령 열수공 지대</p>
+        <p class="ident__sub">심도 3,200 m · 동태평양 해령 열수공 지대 · 3D ARPG</p>
       </div>
     </div>
     <div class="topbar__right">
+      <button class="chip chip--btn" id="rpgCharSheetBtn">👤 캐릭터 시트</button>
       <span class="chip" id="shiftChip">교대 –</span>
       <span class="chip chip--clock" id="clockChip">--:--</span>
       <span class="chip chip--time" id="tokenChip">조사 –</span>
@@ -30,10 +31,23 @@
 
   <main class="stage">
 
-    <!-- ══ 좌: 기지 상태 ══ -->
+    <!-- ══ 좌: 기지 상태 & RPG 캐릭터 허브 ══ -->
     <aside class="rail">
+      <!-- RPG 오퍼레이터 상태 -->
+      <section class="card card--rpg-status">
+        <h2 class="card__title">오퍼레이터 슈트 무결성</h2>
+        <div class="vital" data-vital="hp">
+          <div class="vital__row"><span id="rpgCharName">오퍼레이터 바스 (Lv.1)</span><b id="rpgHpVal">20/20</b></div>
+          <div class="bar"><i id="rpgHpBar" style="width:100%"></i></div>
+        </div>
+        <div class="rpg-mini-stats">
+          <span>방어(GUARD): <b id="rpgGuardVal">14</b></span>
+          <span>XP: <b id="rpgXpVal">0</b></span>
+        </div>
+      </section>
+
       <section class="card card--vitals">
-        <h2 class="card__title">기지 상태</h2>
+        <h2 class="card__title">기지 시스템 상태</h2>
         <div class="vital" data-vital="hull">
           <div class="vital__row"><span>선체 무결성</span><b id="hullVal">100</b></div>
           <div class="bar"><i id="hullBar" style="width:100%"></i></div>
@@ -49,49 +63,62 @@
       </section>
 
       <section class="card card--sonar">
-        <h2 class="card__title">소나</h2>
+        <h2 class="card__title">소나 원격 스윕</h2>
         <canvas id="sonar" width="260" height="260" aria-label="소나 스윕"></canvas>
       </section>
 
       <section class="card card--log">
-        <h2 class="card__title">당직 로그</h2>
+        <h2 class="card__title">당직 & 전투 로그</h2>
         <ul class="log" id="log"></ul>
       </section>
     </aside>
 
-    <!-- ══ 우: 진행 화면 ══ -->
+    <!-- ══ 우: 메인 스테이지 ══ -->
     <section class="deck" id="deck">
 
       <!-- 부팅 / 인트로 -->
       <article class="screen screen--active" id="scrIntro">
         <div class="intro">
-          <p class="intro__kicker">FALSE POSITIVE</p>
-          <h2 class="intro__title">오탐</h2>
-          <p class="intro__body" id="introBrief">지원선은 18시간 거리. 당직은 당신 혼자.</p>
+          <p class="intro__kicker">FALSE POSITIVE : THALASSA-9</p>
+          <h2 class="intro__title">오탐 (3D Action RPG)</h2>
+          <p class="intro__body" id="introBrief">지원선은 18시간 거리. 수심 3,200m 심해 기지 당직은 당신 혼자.</p>
           <p class="intro__body intro__body--dim">
-            온보드 AI <b>NEREUS</b>가 경보를 해석해 조치를 권고합니다.<br />
-            NEREUS는 <b>가끔 틀립니다.</b> 당신의 일은 언제 믿을지 정하는 것입니다.
+            <b>Planescape: Torment 스타일의 심층 대화와 능력치 판정 [INT / WIS / CHA], 그리고 3D 쿼터뷰 액션 탐색.</b><br />
+            온보드 AI <b>NEREUS</b>가 조언하지만 <b>가끔 틀립니다.</b> 직접 현장을 탐색하고, 이상체와 교전하며, AI의 모순을 밝혀내십시오.
           </p>
-          <button class="btn btn--primary" id="startBtn">교대 시작</button>
+          <button class="btn btn--primary" id="startBtn">교대 개시 (3D ARPG 탐색)</button>
         </div>
       </article>
 
-      <!-- 경보 처리 -->
+      <!-- 경보 처리 및 3D ARPG 뷰 -->
       <article class="screen" id="scrIncident">
         <header class="alert">
           <div class="alert__head">
             <span class="alert__tag" id="incChannel">경보</span>
             <span class="alert__id" id="incId">INC-000</span>
+            <div class="view-toggle-tabs">
+              <button class="tab-btn tab-btn--active" id="tabView3D">🎮 3D 쿼터뷰 액션 탐색</button>
+              <button class="tab-btn" id="tabView2D">📊 관제 콘솔 뷰</button>
+            </div>
           </div>
           <p class="alert__report" id="incReport"></p>
           <p class="alert__from" id="incFrom"></p>
         </header>
+
+        <!-- 3D 쿼터뷰 뷰포트 컨테이너 -->
+        <div class="rpg-viewport-container" id="rpgViewportContainer">
+          <div class="rpg-viewport" id="rpgViewport3D"></div>
+          <div class="rpg-overlay-controls">
+            <div class="ctrl-hint"><b>WASD / 방향키</b>: 이동 | <b>마우스 클릭</b>: 이동 및 타겟 공격 | <b>구획 접근</b>: 상호작용</div>
+          </div>
+        </div>
 
         <div class="signals" id="incSignals"></div>
 
         <section class="nereus" id="nereusBox">
           <div class="nereus__head">
             <span class="nereus__mark">◆</span> NEREUS 브리핑
+            <button class="btn btn--sm btn--accent" id="interrogateNereusBtn">💬 AI 심층 문답 [스탯 판정]</button>
           </div>
           <dl class="nereus__body">
             <dt>진단</dt><dd id="nrDiag"></dd>
@@ -105,7 +132,7 @@
           <div class="polflags" id="nrPolicy"></div>
         </section>
 
-        <section class="evidence">
+        <section class="evidence" id="evidenceSection2D">
           <h3 class="sec__title">증거 확보 <span class="sec__hint">시간 토큰 소모</span></h3>
           <figure class="layout">
             <canvas id="layout" width="620" height="250" aria-label="기지 배치도 — 관측 초점"></canvas>
@@ -192,9 +219,72 @@
     </section>
   </main>
 
+  <!-- ══ Planescape: Torment 스타일 심층 대화 모달 ══ -->
+  <div class="rpg-dialogue-modal" id="rpgDialogueModal">
+    <div class="rpg-dialogue-frame">
+      <div class="dialogue-header">
+        <img class="speaker-portrait" id="rpgSpeakerPortrait" src="" alt="Speaker Portrait" />
+        <div>
+          <h3 class="speaker-name" id="rpgSpeakerName">NEREUS</h3>
+          <p class="speaker-role" id="rpgSpeakerRole">온보드 심해 의사결정 인공지능</p>
+        </div>
+      </div>
+      <div class="dialogue-body" id="rpgDialogueText"></div>
+      <div class="dialogue-options" id="rpgDialogueOptions"></div>
+
+      <!-- d20 주사위 롤 팝업 오버레이 -->
+      <div class="rpg-dice-popup" id="rpgDicePopup">
+        <div class="dice-box">
+          <div class="dice-d20">🎲 <b id="rpgDiceValue">20</b></div>
+          <div class="dice-formula"><span id="rpgDiceBonus">+2 (WIS)</span> ➔ 총합: <b id="rpgDiceTotal">22</b> / <span id="rpgDiceTarget">DC 13</span></div>
+          <div class="dice-result-badge" id="rpgDiceResultBadge">판정 성공 (SUCCESS)</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ 캐릭터 시트 모달 (Attributes, Guard, Equipment) ══ -->
+  <div class="rpg-char-modal" id="rpgCharModal">
+    <div class="rpg-char-frame">
+      <div class="modal-head">
+        <h2>오퍼레이터 프로필 & D&D 6대 능력치</h2>
+        <button class="modal-close-btn" id="rpgCharClose">✕</button>
+      </div>
+      <div class="modal-body-grid">
+        <div class="char-stats-col">
+          <h3>능력치 (Attributes)</h3>
+          <div class="stat-row"><span>근력 (STR)</span><b id="rpgStat_STR">12</b><span class="mod-chip" id="rpgMod_STR">+1</span></div>
+          <div class="stat-row"><span>민첩 (DEX)</span><b id="rpgStat_DEX">14</b><span class="mod-chip" id="rpgMod_DEX">+2</span></div>
+          <div class="stat-row"><span>건강 (CON)</span><b id="rpgStat_CON">13</b><span class="mod-chip" id="rpgMod_CON">+1</span></div>
+          <div class="stat-row"><span>지능 (INT)</span><b id="rpgStat_INT">15</b><span class="mod-chip" id="rpgMod_INT">+2</span></div>
+          <div class="stat-row"><span>지혜 (WIS)</span><b id="rpgStat_WIS">14</b><span class="mod-chip" id="rpgMod_WIS">+2</span></div>
+          <div class="stat-row"><span>매력 (CHA)</span><b id="rpgStat_CHA">11</b><span class="mod-chip" id="rpgMod_CHA">+0</span></div>
+        </div>
+        <div class="char-equip-col">
+          <h3>장비 및 무장</h3>
+          <div class="equip-card">
+            <b>무기:</b> 고주파 플라즈마 절단기 (1d6+2 에너지 피해)
+          </div>
+          <div class="equip-card">
+            <b>방어구:</b> MK-IV 심해 방압 수트 (Guard +2)
+          </div>
+          <div class="equip-card">
+            <b>단말:</b> NEREUS 직접 신경 링크 (INT +1)
+          </div>
+          <h3 style="margin-top:14px;">보유 물자</h3>
+          <div class="item-list">
+            <div class="item-badge">나노 수리 주입기 (HP 30 회복) x3</div>
+            <div class="item-badge">신경 각성제 (지혜/지능 +2) x2</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <footer class="foot">
     <span>OPENAI GAME BUILDERS SEOUL 2026 · 출품작</span>
-    <span id="modeBadge" class="mode">콘텐츠: 사전생성</span>
+    <span id="rpgRendererBadge" class="mode">렌더러: WebGPU / WebGL2</span>
+    <span id="modeBadge" class="mode">모드: 3D ARPG + 사전생성</span>
   </footer>
 
   <script type="module" src="js/game.js"></script>

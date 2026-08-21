@@ -1,15 +1,14 @@
 /* ══════════════════════════════════════════════════════════
-   오탐 / FALSE POSITIVE : THALASSA-9  —  게임 코어
+   오탐 / FALSE POSITIVE : THALASSA-9  —  게임 코어 + 3D ARPG
+   Planescape: Torment 스타일 심층 대화 및 3D 쿼터뷰 액션 결합
    의존성 0. 빌드 스텝 없음. GitHub Pages에 그대로 올라간다.
-
-   설계 원칙 하나만 기억할 것:
-     정답(truth)은 엔진이 소유하고, NEREUS의 조언은 그것과 어긋날 수 있다.
-     LLM에게 정답을 맡기지 않는다 — 조언의 '말투와 논리'만 맡긴다.
    ══════════════════════════════════════════════════════════ */
 
 import { POLICIES, POLICY_MAX } from './policies.js';
 import { initLayout, resetLayout, probeTo, skipTravel, isTraveling } from './layout.js';
 import { siteById } from './stations.js';
+import { RpgEngine } from './rpg/engine.js';
+import { createNereusInterrogation } from './rpg/dialogue.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -30,6 +29,8 @@ const S = {
   activePolicies: new Set(),
   policyLog: [],
   fired: [],
+  rpg: null,
+  activeView: '3D', // '3D' or '2D'
 };
 
 /* ── 화면 전환 ────────────────────────────────────────────── */
@@ -57,8 +58,43 @@ async function boot() {
   paintVitals();
   drawSonar();
   initLayout($('layout'));
-  log('관제 콘솔 연결됨', '◈');
+
+  // 3D Isometric Action RPG 엔진 초기화
+  try {
+    S.rpg = new RpgEngine($('rpgViewport3D'), (text, mark) => log(text, mark));
+    S.rpg.init();
+    log('3D 쿼터뷰 심해 엔진 가동됨 [Three.js]', '◈');
+  } catch (err) {
+    console.warn('3D RPG 엔진 초기화 지연:', err);
+  }
+
+  log('관제 콘솔 & RPG 시스템 연결됨', '◈');
   log(`${S.content.station.name} · 심도 ${S.content.station.depth}`);
+
+  setupViewToggle();
+}
+
+function setupViewToggle() {
+  const btn3D = $('tabView3D');
+  const btn2D = $('tabView2D');
+  const vp3D = $('rpgViewportContainer');
+  const ev2D = $('evidenceSection2D');
+
+  if (!btn3D || !btn2D) return;
+
+  btn3D.addEventListener('click', () => {
+    S.activeView = '3D';
+    btn3D.classList.add('tab-btn--active');
+    btn2D.classList.remove('tab-btn--active');
+    if (vp3D) vp3D.style.display = 'block';
+    if (S.rpg?.scene3d) S.rpg.scene3d.onResize();
+  });
+
+  btn2D.addEventListener('click', () => {
+    S.activeView = '2D';
+    btn2D.classList.add('tab-btn--active');
+    btn3D.classList.remove('tab-btn--active');
+  });
 }
 
 function startShift() {
@@ -129,14 +165,33 @@ function nextIncident() {
   paintEvidence();
   paintActions();
 
+  // RPG 3D 엔진에 현재 경보 주입 & 이상체 스폰
+  if (S.rpg) {
+    S.rpg.setIncident(S.inc, (ev) => buyEvidence(ev.id));
+    S.rpg.updateCharacterSheet();
+  }
+
+  // NEREUS 심층 문답 버튼 바인딩
+  const interrogateBtn = $('interrogateNereusBtn');
+  if (interrogateBtn) {
+    interrogateBtn.onclick = () => {
+      const diag = createNereusInterrogation(S.inc, S.rpg.character, {
+        onEvidenceDiscovered: () => {
+          if (S.inc.evidence.length > 0) buyEvidence(S.inc.evidence[0].id);
+        },
+      });
+      S.rpg.dialogueEngine.startDialogue(diag);
+    };
+  }
+
   log(`${S.inc.clock}  ${S.inc.id} 수신`, '!');
   drawSonar(S.inc.channel === 'sonar');
   show('scrIncident');
+
+  if (S.rpg?.scene3d) S.rpg.scene3d.onResize();
 }
 
-/* ── 디렉터 규칙 적용 ─────────────────────────────────────────
-   규칙 테이블은 js/policies.js 가 소유한다 (tools/validate.mjs 와 공유).
-   선택된 규칙 중 이 경보에 걸리는 것들을 적용하고, 발동 내역을 채점 로그에 남긴다. */
+/* ── 디렉터 규칙 적용 ───────────────────────────────────────── */
 function applyDirectorRules(inc) {
   const fired = POLICIES.filter((p) => S.activePolicies.has(p.id) && p.match(inc));
   if (!fired.length) return [];
@@ -171,7 +226,7 @@ function buyEvidence(id) {
   const e = S.inc.evidence.find((x) => x.id === id);
   if (!e || S.spent.has(id) || e.cost > S.tokens || isTraveling()) return;
 
-  // 토큰은 즉시 빠진다 — 연출을 건너뛰어도 비용은 같다.
+  // 토큰 차감
   S.spent.add(id);
   S.tokens -= e.cost;
   $('tokenChip').textContent = `조사 ${S.tokens}`;
@@ -180,6 +235,11 @@ function buyEvidence(id) {
   const site = siteById(e.site);
   setCap(site, true);
   log(`관측 초점 이동: ${site?.label ?? e.site}`, '→');
+
+  // 3D 뷰포트 아바타도 해당 위치로 이동
+  if (S.rpg?.scene3d) {
+    S.rpg.scene3d.moveToSite(e.site);
+  }
 
   probeTo(e.site, () => {
     setCap(site, false);
@@ -191,7 +251,7 @@ function buyEvidence(id) {
   });
 }
 
-/* 배치도 캡션 — 이동 중에는 앰버, 도착하면 시안. */
+/* 배치도 캡션 */
 function setCap(site, busy) {
   const label = site?.label ?? '관제 코어';
   $('layoutCap').innerHTML = busy
@@ -222,8 +282,6 @@ function paintActions() {
 
 /* ── 판정 ────────────────────────────────────────────────── */
 function resolve(actId) {
-  // 초점 이동 중에 조치를 누르면 연출을 즉시 끝내고 증거를 먼저 공개한다.
-  // 산 증거가 화면에 뜨지 않은 채로 결과로 넘어가면 안 된다.
   if (isTraveling()) skipTravel();
 
   const act = S.inc.actions.find((a) => a.id === actId);
@@ -267,6 +325,7 @@ function paintVitals() {
     $(`${k}Bar`).style.width = `${v}%`;
     $(`${k}Bar`).closest('.vital').classList.toggle('vital--low', v < 35);
   }
+  if (S.rpg) S.rpg.updateCharacterSheet();
 }
 
 /* ── 결산 ────────────────────────────────────────────────── */
@@ -296,7 +355,6 @@ function debrief() {
   show('scrDebrief');
 }
 
-/* 규칙 자체의 혼동행렬 — 플레이어가 설계한 정책을 채점한다. */
 function paintPolicyScore() {
   const box = $('polScore');
   if (!S.activePolicies.size) { box.hidden = true; return; }
